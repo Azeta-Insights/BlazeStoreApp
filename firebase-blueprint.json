@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "id": { "type": "string", "description": "Unique user ID" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "description": "User email address" },
+        "role": { "type": "string", "description": "User role: owner, manager, or customer" },
+        "roleType": { "type": "string", "description": "Standardized role tag" },
+        "phone": { "type": "string", "optional": true },
+        "avatar": { "type": "string", "optional": true },
+        "createdAt": { "type": "string", "description": "ISO creation date timestamp" }
+      },
+      "roles": {
+        "owner": { "read": true, "write": true, "delete": true, "manageRoles": true },
+        "manager": { "read": true, "write": false, "delete": false, "manageRoles": false },
+        "customer": { "read": "self", "write": "self_no_role_change", "delete": false, "manageRoles": false }
+      }
+    },
+    "Product": {
+      "collection": "products",
+      "fields": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "originalPrice": { "type": "number", "optional": true },
+        "discountPercentage": { "type": "number", "optional": true },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "stockQuantity": { "type": "number", "optional": true },
+        "description": { "type": "string", "optional": true },
+        "image": { "type": "string" },
+        "badge": { "type": "string", "optional": true },
+        "isHot": { "type": "boolean", "optional": true },
+        "isDeal": { "type": "boolean", "optional": true },
+        "isNewArrival": { "type": "boolean", "optional": true },
+        "colors": { "type": "array", "optional": true },
+        "inStock": { "type": "boolean", "optional": true }
+      },
+      "roles": {
+        "owner": { "read": true, "write": true, "delete": true },
+        "manager": { "read": true, "write": true, "delete": true },
+        "customer": { "read": true, "write": false, "delete": false }
+      }
+    },
+    "Cart": {
+      "collection": "carts",
+      "fields": {
+        "userId": { "type": "string" },
+        "items": { "type": "array" },
+        "updatedAt": { "type": "string", "optional": true }
+      },
+      "roles": {
+        "owner": { "read": true, "write": true, "delete": true },
+        "manager": { "read": false, "write": false, "delete": false },
+        "customer": { "read": "self", "write": "self", "delete": "self" }
+      }
+    },
+    "Order": {
+      "collection": "orders",
+      "fields": {
+        "orderId": { "type": "string" },
+        "userId": { "type": "string", "optional": true },
+        "customer": { "type": "object" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "status": { "type": "string" },
+        "refundAmount": { "type": "number", "optional": true },
+        "refundStatus": { "type": "string", "optional": true, "description": "none, approved, or pending_owner_approval" },
+        "createdAt": { "type": "string" }
+      },
+      "roles": {
+        "owner": { "read": true, "write": true, "delete": true },
+        "manager": { "read": true, "write": "orders_and_refunds_under_200", "delete": false },
+        "customer": { "read": "self", "write": "create_self_order", "delete": false }
+      }
+    },
+    "Refund": {
+      "collection": "refunds",
+      "fields": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "description": "approved or pending_owner_approval" },
+        "refundedBy": { "type": "string" },
+        "adminRole": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "roles": {
+        "owner": { "read": true, "write": true, "delete": true, "approveAll": true },
+        "manager": { "read": true, "createUnder200": true, "flagAbove200": true, "delete": false },
+        "customer": { "read": false, "write": false, "delete": false }
+      }
+    },
+    "RevenueReport": {
+      "collection": "revenue_reports",
+      "fields": {
+        "grossRevenue": { "type": "number" },
+        "netRevenue": { "type": "number" },
+        "dailyRevenue": { "type": "array" },
+        "categorySales": { "type": "array" }
+      },
+      "roles": {
+        "owner": { "read": true, "write": true, "exportRaw": true },
+        "manager": { "read": true, "write": false, "exportRaw": false },
+        "customer": { "read": false, "write": false, "exportRaw": false }
+      }
+    }
+  }
+}

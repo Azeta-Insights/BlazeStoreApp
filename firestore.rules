@@ -1,0 +1,145 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for Authentication and RBAC
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+
+    function isOwner() {
+      return isAuthenticated() && (
+        getUserData().get('role', '') == 'owner' ||
+        getUserData().get('roleType', '') == 'owner' ||
+        request.auth.token.email == 'azetablessingb@gmail.com'
+      );
+    }
+
+    function isManager() {
+      return isAuthenticated() && (
+        getUserData().get('role', '') == 'manager' ||
+        getUserData().get('roleType', '') == 'manager' ||
+        request.auth.token.email == 'blessing.waydiva@gmail.com'
+      );
+    }
+
+    function isStaff() {
+      return isOwner() || isManager();
+    }
+
+    function isCustomer() {
+      return isAuthenticated() && (
+        getUserData().get('role', 'customer') == 'customer' ||
+        getUserData().get('roleType', 'customer') == 'customer'
+      );
+    }
+
+    // Default deny for all collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Users collection
+    // - Owner: Full access to create, read, update, delete any user and assign roles
+    // - Authenticated User: Read and update own profile, but CANNOT elevate or change role
+    // - Manager: Read-only access to staff directory, cannot change roles or delete users
+    // - Customer: Read/update own record only
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isStaff() || request.auth.uid == userId);
+      allow create: if isStaff() || (
+        isAuthenticated() && request.auth.uid == userId
+      );
+      allow update: if isOwner() || (
+        isAuthenticated() && 
+        request.auth.uid == userId && 
+        request.resource.data.get('role', 'customer') == resource.data.get('role', 'customer') &&
+        request.resource.data.get('roleType', 'customer') == resource.data.get('roleType', 'customer')
+      );
+      allow delete: if isOwner();
+    }
+
+    // 2. Products collection
+    // - Public: Read access for storefront
+    // - Owner & Staff: Full read and write (create, update, delete) for inventory operations
+    // - Authenticated: Can create products (initial catalog seeding)
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isStaff() || isAuthenticated();
+      allow update, delete: if isStaff();
+    }
+
+    // 3. Orders collection
+    // - Owner: Full read, write, delete access
+    // - Manager: Full read and update status, process refunds up to ₦200,000
+    // - Customer: Read and create their own orders only
+    match /orders/{orderId} {
+      allow read: if isStaff() || (
+        isAuthenticated() && (
+          resource.data.get('userId', '') == request.auth.uid || 
+          (request.auth.token.email != null && resource.data.customer.get('email', '') == request.auth.token.email)
+        )
+      );
+      allow create: if isStaff() || (
+        isAuthenticated() && (
+          request.resource.data.get('userId', '') == request.auth.uid || 
+          (request.auth.token.email != null && request.resource.data.customer.get('email', '') == request.auth.token.email)
+        )
+      );
+      allow update: if isOwner() || (
+        isManager() && (
+          // Managers can change fulfillment status, or refunds under ₦200,000, or mark >₦200,000 as pending approval
+          request.resource.data.get('refundAmount', 0) == resource.data.get('refundAmount', 0) ||
+          request.resource.data.get('refundAmount', 0) <= 200000 ||
+          request.resource.data.get('refundStatus', '') == 'pending_owner_approval'
+        )
+      );
+      allow delete: if isOwner();
+    }
+
+    // 4. Refunds collection
+    // - Owner: Full read/write, approve, reject, or delete
+    // - Manager: Read refunds, process <= ₦200,000 instantly (status: 'approved'), or create > ₦200,000 with status: 'pending_owner_approval'
+    // - Customer: Denied (no access to refund admin collection)
+    match /refunds/{refundId} {
+      allow read: if isStaff();
+      allow create: if isOwner() || (
+        isManager() && (
+          (request.resource.data.get('amount', 0) <= 200000 && request.resource.data.get('status', '') == 'approved') ||
+          (request.resource.data.get('amount', 0) > 200000 && request.resource.data.get('status', '') == 'pending_owner_approval')
+        )
+      );
+      allow update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    // 5. Revenue Reports & Analytics
+    // - Owner: Full read, write, and export access
+    // - Manager: Read-only aggregate stats in dashboard, cannot write or export raw datasets
+    // - Customer: Denied
+    match /revenue_reports/{reportId} {
+      allow read: if isStaff();
+      allow write: if isOwner();
+    }
+
+    // 6. User Carts & Wishlists (Customer private data)
+    match /carts/{userId} {
+      allow read, write: if isAuthenticated() && (request.auth.uid == userId || isOwner());
+    }
+
+    match /wishlists/{userId} {
+      allow read, write: if isAuthenticated() && (request.auth.uid == userId || isOwner());
+    }
+
+    // 7. Notifications
+    match /notifications/{notifId} {
+      allow read: if isAuthenticated() && (isStaff() || resource.data.get('userId', '') == request.auth.uid);
+      allow write: if isStaff();
+    }
+  }
+}

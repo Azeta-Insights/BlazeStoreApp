@@ -1,6 +1,6 @@
 {
   "name": "Remix BlazeStore",
-  "description": "Full-stack ecommerce platform featuring role-based landing pages and access control for Store Owner, Store Manager, and Customers, complete with Google Cloud Firestore and Firebase Auth persistence.",
+  "description": "Premium ecommerce platform featuring role-based dashboards and access control for Store Owner, Store Manager, and Customers, complete with real-time cloud data and secure checkout.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

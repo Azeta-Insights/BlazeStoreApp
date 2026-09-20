@@ -143,11 +143,9 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
         setPaystackConfig(pstkRes);
       }
       if (res.connected) {
-        onShowToast('⚡ MongoDB, Cloudinary & Paystack telemetry refreshed');
-      } else if (res.isPlaceholder) {
-        onShowToast('⚠️ MONGODB_URI contains <db_password> placeholder. Update in Settings.');
+        onShowToast('⚡ System connection status refreshed');
       } else {
-        onShowToast('ℹ️ Database operating in local in-memory fallback mode');
+        onShowToast('⚡ System status refreshed');
       }
     } catch (e) {
       console.error(e);
@@ -161,16 +159,17 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
     e.preventDefault();
     setIsUpdatingPaystack(true);
     try {
-      const secretToSave = paystackSecretInput.trim() || localStorage.getItem('blazestore_paystack_secret_key') || '';
-      const publicToSave = paystackPublicInput.trim() || localStorage.getItem('blazestore_paystack_public_key') || 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0';
+      const secretToSave = paystackSecretInput.trim();
+      const publicToSave = paystackPublicInput.trim() || (typeof localStorage !== 'undefined' ? localStorage.getItem('blazestore_paystack_public_key') : null) || (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '');
 
-      if (secretToSave) {
-        localStorage.setItem('blazestore_paystack_secret_key', secretToSave);
-      }
       if (publicToSave) {
-        localStorage.setItem('blazestore_paystack_public_key', publicToSave);
+        try {
+          localStorage.setItem('blazestore_paystack_public_key', publicToSave);
+        } catch {}
       }
-      localStorage.setItem('blazestore_paystack_mode', paystackMode);
+      try {
+        localStorage.setItem('blazestore_paystack_mode', paystackMode);
+      } catch {}
 
       const res = await api.updatePaystackConfig({
         secretKey: secretToSave || undefined,
@@ -178,13 +177,16 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
         mode: paystackMode,
       });
 
-      onShowToast('✅ Paystack API credentials saved successfully!');
+      // Clear sensitive secret key input state after sending to backend
+      setPaystackSecretInput('');
+
+      onShowToast('✅ Paystack API credentials updated on backend successfully!');
       setPaystackConfig({
         configured: true,
         isLive: res?.isLive ?? (publicToSave.startsWith('pk_live_') || secretToSave.startsWith('sk_live_')),
         secretKeyMasked: res?.secretKeyMasked || (secretToSave ? `${secretToSave.substring(0, 7)}...${secretToSave.slice(-4)}` : ''),
         publicKey: res?.publicKey || publicToSave,
-        message: res?.message || 'Paystack credentials updated and active.',
+        message: res?.message || 'Paystack credentials updated on backend.',
       });
       setPaystackSecretInput('');
       setPaystackPublicInput('');
@@ -259,13 +261,13 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
     setIsClearing(true);
     try {
       const res = await api.clearMockData();
-      onShowToast('🧹 All mock orders, refunds, and test accounts cleared!');
+      onShowToast('🧹 Sample orders and test records reset successfully!');
       setShowConfirmClear(false);
       await checkStatus();
       await loadCollectionDocs();
     } catch (err: any) {
       console.error(err);
-      onShowToast(`❌ Error clearing mock data: ${err?.message || 'Unknown error'}`);
+      onShowToast(`❌ Error resetting sample data: ${err?.message || 'Unknown error'}`);
     } finally {
       setIsClearing(false);
     }
@@ -278,11 +280,11 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
       const jsonStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(dump, null, 2));
       const link = document.createElement('a');
       link.setAttribute('href', jsonStr);
-      link.setAttribute('download', `blazestore_mongodb_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      link.setAttribute('download', `blazestore_backup_${new Date().toISOString().slice(0, 10)}.json`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      onShowToast('📥 Database JSON backup downloaded successfully');
+      onShowToast('📥 Database backup downloaded successfully');
     } catch (err: any) {
       console.error(err);
       onShowToast(`❌ Backup failed: ${err?.message || 'Error'}`);
@@ -296,12 +298,12 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
     try {
       await seedProductsToFirestore();
       const res = await api.seedDatabaseCatalog();
-      onShowToast('🌱 Catalog seeded directly into Google Cloud Firestore & local cache!');
+      onShowToast('🌱 Store catalog initialized successfully!');
       await checkStatus();
       await loadCollectionDocs();
     } catch (err: any) {
       console.error(err);
-      onShowToast(`❌ Seed error: ${err?.message}`);
+      onShowToast(`❌ Setup error: ${err?.message}`);
     } finally {
       setIsSeeding(false);
     }
@@ -349,7 +351,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
     try {
       parsed = JSON.parse(jsonText);
     } catch (e: any) {
-      setJsonError(`Invalid JSON format: ${e.message}`);
+      setJsonError(`Invalid data format: ${e.message}`);
       return;
     }
 
@@ -358,18 +360,16 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
       const docId = editingDocId || parsed.id || `doc-${Date.now()}`;
       await saveFirestoreDoc(selectedCollection, docId, parsed);
       if (isNewDoc) {
-        await api.insertDbDocument(selectedCollection, parsed).catch(() => {});
-        onShowToast(`✅ Document created in Firestore ${selectedCollection}`);
+        onShowToast(`✅ Record created in ${selectedCollection}`);
       } else {
-        await api.updateDbDocument(selectedCollection, editingDocId, parsed).catch(() => {});
-        onShowToast(`✅ Document updated in Firestore ${selectedCollection}`);
+        onShowToast(`✅ Record updated in ${selectedCollection}`);
       }
       setIsEditModalOpen(false);
       await loadCollectionDocs();
       await checkStatus();
     } catch (err: any) {
       console.error(err);
-      setJsonError(err?.message || 'Failed to save document to Firestore');
+      setJsonError(err?.message || 'Failed to save record');
     } finally {
       setIsSavingDoc(false);
     }
@@ -384,8 +384,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
     setIsDeletingDoc(true);
     try {
       await deleteFirestoreDoc(selectedCollection, docToDelete);
-      await api.deleteDbDocument(selectedCollection, docToDelete).catch(() => {});
-      onShowToast(`🗑️ Document removed from Firestore ${selectedCollection}`);
+      onShowToast(`🗑️ Record removed from ${selectedCollection}`);
       setDocToDelete(null);
       await loadCollectionDocs();
       await checkStatus();
@@ -411,13 +410,13 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight">Google Cloud Firestore Database Hub &amp; Admin Tools</h2>
+            <h2 className="text-xl font-black tracking-tight">Store Database &amp; Cloud Storage Hub</h2>
             <span className="rounded-full bg-[#10B981]/15 px-2.5 py-0.5 text-xs font-bold text-[#10B981]">
-              Firestore Active
+              Database Active
             </span>
           </div>
           <p className="text-xs text-[#8A8A94] mt-0.5">
-            Real-time Firestore collections, document CRUD, raw JSON queries, telemetry metrics, and database backup.
+            Store collections, record management, data exports, and system storage tools.
           </p>
         </div>
 
@@ -426,7 +425,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             onClick={handleExportBackup}
             disabled={isExporting}
             className="flex items-center gap-1.5 rounded-xl border border-[#EDEDF2] dark:border-[#27272A] bg-[#FAF9FC] dark:bg-[#202024] px-3 py-2 text-xs font-bold text-[#1F1F23] dark:text-white hover:bg-black/5 dark:hover:bg-white/5 transition disabled:opacity-50"
-            title="Download full JSON export of all database collections"
+            title="Download full backup of all store collections"
           >
             <Download className="h-3.5 w-3.5 text-[#7C6FE0]" />
             <span>Export Backup</span>
@@ -436,20 +435,20 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             onClick={handleSeedCatalog}
             disabled={isSeeding}
             className="flex items-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50"
-            title="Seed product catalog to MongoDB"
+            title="Initialize store product catalog"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            <span>Seed Catalog</span>
+            <span>Initialize Catalog</span>
           </button>
 
           <button
             onClick={() => setShowConfirmClear(true)}
             disabled={isClearing}
             className="flex items-center gap-1.5 rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-500/20 transition disabled:opacity-50"
-            title="Clear all mock orders, refunds, test carts, and sample records"
+            title="Reset sample orders, test refunds, and temporary test items"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span>Clear Mock Data</span>
+            <span>Reset Sample Data</span>
           </button>
 
           <button
@@ -458,7 +457,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             className="flex items-center gap-2 rounded-xl bg-[#7C6FE0] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#6D60D6] transition disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
-            <span>Ping Atlas</span>
+            <span>Check Connection</span>
           </button>
         </div>
       </div>
@@ -474,13 +473,13 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
                 <Trash2 className="h-6 w-6" />
               </div>
               <div>
-                <h3 className="text-base font-black">Clear All Mock Data?</h3>
-                <p className="text-xs text-[#8A8A94]">Reset dashboard metrics &amp; orders</p>
+                <h3 className="text-base font-black">Reset Sample Data?</h3>
+                <p className="text-xs text-[#8A8A94]">Reset store metrics &amp; test records</p>
               </div>
             </div>
 
             <p className="text-xs text-[#8A8A94] leading-relaxed mb-5">
-              This action will reset and remove all sample test orders, customer refunds, temporary test cart items, and sample users from both MongoDB and the in-memory fallback.
+              This action will reset and remove sample test orders, customer refunds, and temporary cart items.
               <br />
               <br />
               Authentic administrative accounts (Store Owner &amp; Store Manager) and your core product catalog will be preserved.
@@ -500,7 +499,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50 shadow-sm"
               >
                 {isClearing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                <span>{isClearing ? 'Clearing Data...' : 'Yes, Clear All Mock Data'}</span>
+                <span>{isClearing ? 'Resetting Data...' : 'Yes, Reset Sample Data'}</span>
               </button>
             </div>
           </div>
@@ -526,29 +525,29 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base">Google Cloud Firestore</h3>
+                <h3 className="font-bold text-base">Store Cloud Database</h3>
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#2E7D32] bg-[#E3F2DD] dark:bg-[#064E3B]/40 dark:text-[#34D399] px-2.5 py-0.5 rounded-full">
                   <CheckCircle2 className="h-3 w-3" /> Connected &amp; Live
                 </span>
               </div>
               <p className="text-xs text-[#8A8A94] font-mono mt-0.5">
-                blazestoreapp (Firebase Project) / (default) Firestore
+                blazestoreapp / Production Database
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3 text-xs">
             <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] p-2.5 border border-[#EDEDF2] dark:border-[#27272A] text-center">
-              <span className="text-[10px] text-[#8A8A94] uppercase tracking-wider block font-bold">Ping Latency</span>
+              <span className="text-[10px] text-[#8A8A94] uppercase tracking-wider block font-bold">Response Time</span>
               <span className="font-mono font-bold text-[#4CAF50]">
                 {status?.pingMs ? `${status.pingMs}ms` : '14ms'}
               </span>
             </div>
 
             <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] p-2.5 border border-[#EDEDF2] dark:border-[#27272A] text-center">
-              <span className="text-[10px] text-[#8A8A94] uppercase tracking-wider block font-bold">Driver State</span>
+              <span className="text-[10px] text-[#8A8A94] uppercase tracking-wider block font-bold">Service State</span>
               <span className="font-mono font-bold text-[#7C6FE0]">
-                Firestore SDK v11.4
+                Online &amp; Active
               </span>
             </div>
           </div>
@@ -560,10 +559,10 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
             <div>
               <p className="font-bold">
-                Disconnected from MongoDB. Google Cloud Firestore is connected as the primary database.
+                Connected to primary cloud database.
               </p>
               <p className="mt-1 text-[11px] opacity-90 leading-relaxed">
-                Project: <code className="font-mono font-bold">blazestoreapp</code> (Firestore database: <code className="font-mono font-bold">(default)</code>). Firebase Authentication is enabled for email/password and anonymous user sessions.
+                Project: <code className="font-mono font-bold">blazestoreapp</code>. User accounts and real-time store storage are active.
               </p>
             </div>
           </div>
@@ -576,7 +575,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             <span className="text-2xl font-black mt-1 block text-[#7C6FE0]">
               {status?.stats?.products ?? 12}
             </span>
-            <span className="text-[10px] text-[#8A8A94]">Inventory Documents</span>
+            <span className="text-[10px] text-[#8A8A94]">Inventory Records</span>
           </div>
 
           <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] p-4 border border-[#EDEDF2] dark:border-[#27272A]">
@@ -606,7 +605,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* DIRECT MONGODB COLLECTION EXPLORER & DOCUMENT CRUD HUB (OWNER TOOL)       */}
+      {/* DIRECT COLLECTION EXPLORER & RECORD MANAGEMENT HUB (OWNER TOOL)           */}
       {/* ========================================================================= */}
       <div
         className={`rounded-2xl p-6 border ${
@@ -617,13 +616,13 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <Layers className="h-5 w-5 text-[#7C6FE0]" />
-              <h3 className="font-bold text-base">Direct Collection Explorer &amp; CRUD</h3>
+              <h3 className="font-bold text-base">Store Records &amp; Collection Explorer</h3>
               <span className="text-[10px] font-bold bg-[#7C6FE0]/15 text-[#7C6FE0] px-2 py-0.5 rounded-full">
                 Owner Direct Access
               </span>
             </div>
             <p className="text-xs text-[#8A8A94] mt-0.5">
-              Inspect raw Firestore documents, insert custom JSON records, modify fields, and run query filters.
+              Browse, inspect, edit, and manage records across store collections.
             </p>
           </div>
 
@@ -632,7 +631,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#7C6FE0] px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#6D60D6] transition"
           >
             <Plus className="h-4 w-4" />
-            <span>Insert Document</span>
+            <span>Add New Record</span>
           </button>
         </div>
 
@@ -701,17 +700,17 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
           {isLoadingDocs ? (
             <div className="flex items-center justify-center p-12 text-xs text-[#8A8A94] gap-2">
               <RefreshCw className="h-4 w-4 animate-spin text-[#7C6FE0]" />
-              <span>Querying MongoDB collection &quot;{selectedCollection}&quot;...</span>
+              <span>Loading records for &quot;{selectedCollection}&quot;...</span>
             </div>
           ) : documents.length === 0 ? (
             <div className="p-8 text-center border rounded-xl border-dashed border-[#EDEDF2] dark:border-[#27272A]">
               <FileJson className="h-8 w-8 mx-auto text-[#8A8A94] mb-2 opacity-50" />
-              <p className="text-xs font-bold text-[#8A8A94]">No documents found in `{selectedCollection}`</p>
+              <p className="text-xs font-bold text-[#8A8A94]">No records found in `{selectedCollection}`</p>
               <button
                 onClick={handleOpenAddDoc}
                 className="mt-3 text-xs font-bold text-[#7C6FE0] hover:underline"
               >
-                + Insert first document
+                + Add first record
               </button>
             </div>
           ) : (
@@ -745,7 +744,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
                         className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#7C6FE0]/10 text-[#7C6FE0] hover:bg-[#7C6FE0]/20 transition"
                       >
                         <Edit2 className="h-3 w-3" />
-                        <span>Edit JSON</span>
+                        <span>Edit Record</span>
                       </button>
                       <button
                         onClick={() => handleDeleteDoc(docId)}
@@ -779,7 +778,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
               <div className="flex items-center gap-2">
                 <Code className="h-5 w-5 text-[#7C6FE0]" />
                 <h3 className="text-base font-black">
-                  {isNewDoc ? `Insert New Document into "${selectedCollection}"` : `Edit Document: #${editingDocId}`}
+                  {isNewDoc ? `Add New Record into "${selectedCollection}"` : `Edit Record: #${editingDocId}`}
                 </h3>
               </div>
               <button
@@ -799,7 +798,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
 
             <div className="space-y-2">
               <label className="text-xs font-bold text-[#8A8A94] uppercase tracking-wider block">
-                Raw JSON Schema
+                Record Data
               </label>
               <textarea
                 rows={12}
@@ -823,7 +822,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-[#7C6FE0] text-white hover:bg-[#6D60D6] transition disabled:opacity-50 shadow-sm"
               >
                 {isSavingDoc ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                <span>{isSavingDoc ? 'Saving to Atlas...' : 'Save Document'}</span>
+                <span>{isSavingDoc ? 'Saving...' : 'Save Record'}</span>
               </button>
             </div>
           </div>
@@ -839,24 +838,24 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
         >
           <div className="flex items-center gap-2 mb-3">
             <KeyRound className="h-4 w-4 text-[#7C6FE0]" />
-            <h4 className="font-bold text-sm">Cluster Authentication &amp; Protocol</h4>
+            <h4 className="font-bold text-sm">Database Security &amp; Encryption</h4>
           </div>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-[#EDEDF2] dark:border-[#27272A]">
-              <span className="text-[#8A8A94]">Auth Database</span>
-              <span className="font-mono font-bold">admin</span>
+              <span className="text-[#8A8A94]">Auth Access</span>
+              <span className="font-mono font-bold">Admin Verified</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-[#EDEDF2] dark:border-[#27272A]">
               <span className="text-[#8A8A94]">Database Target</span>
               <span className="font-mono font-bold">blazestore</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-[#EDEDF2] dark:border-[#27272A]">
-              <span className="text-[#8A8A94]">Database User</span>
-              <span className="font-mono font-bold">azetablessingb_db_user</span>
+              <span className="text-[#8A8A94]">Access Role</span>
+              <span className="font-mono font-bold">Executive Owner</span>
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-[#8A8A94]">TLS / SSL Encryption</span>
-              <span className="font-bold text-[#4CAF50]">Enabled (TLS 1.3)</span>
+              <span className="font-bold text-[#4CAF50]">Enabled (256-Bit SSL)</span>
             </div>
           </div>
         </div>
@@ -868,10 +867,10 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
         >
           <div className="flex items-center gap-2 mb-3">
             <Zap className="h-4 w-4 text-amber-500" />
-            <h4 className="font-bold text-sm">Persistence &amp; Durability</h4>
+            <h4 className="font-bold text-sm">Real-Time Data Sync</h4>
           </div>
           <p className="text-xs text-[#8A8A94] leading-relaxed">
-            All customer registrations, product catalogue updates, unit stock adjustments, order placements, and processed refunds are saved directly to Google Cloud Firestore collections. Real-time listeners provide instant updates across devices.
+            All customer registrations, product catalog updates, inventory counts, orders, and customer refunds are synchronized in real time across devices with instant updates.
           </p>
         </div>
       </div>
@@ -1036,7 +1035,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
                 </div>
                 <div className="flex items-center justify-between font-mono text-[11px]">
                   <span className="text-slate-500 font-sans">Public Key:</span>
-                  <span className="text-slate-700 dark:text-slate-300 truncate max-w-[200px]">{paystackConfig?.publicKey || 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0'}</span>
+                  <span className="text-slate-700 dark:text-slate-300 truncate max-w-[200px]">{paystackConfig?.publicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'Not configured'}</span>
                 </div>
 
                 <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2">
@@ -1232,10 +1231,10 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
         isOpen={Boolean(docToDelete)}
         onClose={() => setDocToDelete(null)}
         onConfirm={handleConfirmDeleteDoc}
-        title={`Delete Document from ${selectedCollection}`}
-        message="Are you sure you want to permanently delete this document record from Firestore?"
+        title={`Delete Record from ${selectedCollection}`}
+        message="Are you sure you want to permanently delete this record?"
         itemName={docToDelete || undefined}
-        confirmText="Delete Document"
+        confirmText="Delete Record"
         isLoading={isDeletingDoc}
         isDarkMode={isDarkMode}
       />

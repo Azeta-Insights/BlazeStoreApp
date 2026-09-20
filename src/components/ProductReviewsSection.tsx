@@ -188,7 +188,7 @@ export function ProductReviewsSection({ product, onShowToast }: ProductReviewsSe
               </label>
               <input
                 type="text"
-                placeholder="e.g. Alex Morgan"
+                placeholder="Enter your full name"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
                 className="w-full px-3.5 py-2 text-xs sm:text-sm rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"

@@ -46,12 +46,6 @@ import { AnnouncementBar } from './components/AnnouncementBar';
 import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { InvoiceModal } from './components/InvoiceModal';
 import { AddressBookModal } from './components/AddressBookModal';
-import {
-  BEST_DEALS,
-  RECOMMENDED_PRODUCTS,
-  INITIAL_CART,
-  NOTIFICATIONS
-} from './data/mockData';
 import { Product, CartItem, NotificationItem, User, AnnouncementConfig, Order } from './types';
 import { api, DbStatus } from './services/api';
 
@@ -75,7 +69,7 @@ export default function App() {
     }
   });
 
-  // MongoDB & Backend Status
+  // Database & Backend Status
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
 
   // User Authentication State: default is null (Guest visitor)
@@ -108,11 +102,11 @@ export default function App() {
     badge: 'FLASH DEAL',
   });
 
-  // Products from MongoDB / Backend
-  const [dealsProducts, setDealsProducts] = useState<Product[]>(BEST_DEALS);
-  const [recProducts, setRecProducts] = useState<Product[]>(RECOMMENDED_PRODUCTS);
+  // Products from Store API / Firestore
+  const [dealsProducts, setDealsProducts] = useState<Product[]>([]);
+  const [recProducts, setRecProducts] = useState<Product[]>([]);
 
-  // Cart, Wishlist & Notifications state (synced with browser localStorage & MongoDB)
+  // Cart, Wishlist & Notifications state (synced with browser localStorage & Firestore)
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
       const saved = localStorage.getItem('blazestore_cart');
@@ -189,15 +183,19 @@ export default function App() {
   // Consolidated Initial Bootstrap Data Load
   useEffect(() => {
     async function initData() {
-      // 1. Instantaneous offline/cache hydration from localStorage
+      // 1. Instantaneous offline/cache hydration from localStorage (ignoring legacy mock cache)
       try {
         const cached = localStorage.getItem('blazestore_bootstrap_cache');
         if (cached) {
           const parsed = JSON.parse(cached)?.data;
           if (parsed) {
             if (parsed.dbStatus) setDbStatus(parsed.dbStatus);
-            if (parsed.deals?.length) setDealsProducts(parsed.deals);
-            if (parsed.recommended?.length) setRecProducts(parsed.recommended);
+            if (Array.isArray(parsed.deals)) {
+              setDealsProducts(parsed.deals.filter((p: any) => !p.id.startsWith('deal-')));
+            }
+            if (Array.isArray(parsed.recommended)) {
+              setRecProducts(parsed.recommended.filter((p: any) => !p.id.startsWith('rec-')));
+            }
             if (parsed.announcement) setAnnouncementConfig(parsed.announcement);
           }
         }
@@ -208,13 +206,12 @@ export default function App() {
         const bootstrap = await api.getBootstrap();
         if (bootstrap) {
           if (bootstrap.dbStatus) setDbStatus(bootstrap.dbStatus);
-          if (bootstrap.deals && bootstrap.deals.length > 0) setDealsProducts(bootstrap.deals);
-          if (bootstrap.recommended && bootstrap.recommended.length > 0) setRecProducts(bootstrap.recommended);
+          setDealsProducts(bootstrap.deals || []);
+          setRecProducts(bootstrap.recommended || []);
           if (bootstrap.announcement) setAnnouncementConfig(bootstrap.announcement);
           if (bootstrap.notifications && bootstrap.notifications.length > 0) setNotifications(bootstrap.notifications);
           if (bootstrap.currentUser) {
             setCurrentUser(bootstrap.currentUser);
-            // NOTE: Landing view strictly defaults to storefront ('store')
           }
           // If server cart exists and local was empty, populate from server
           if (bootstrap.cart && bootstrap.cart.length > 0 && cart.length === 0) {
@@ -482,12 +479,12 @@ export default function App() {
       const status = await api.getDbStatus();
       setDbStatus(status);
       if (status.connected) {
-        showToast(`MongoDB Connected (${status.pingMs ?? 0}ms ping) 🟢`);
+        showToast('Store online & connected 🟢');
       } else {
-        showToast('MongoDB checked: running in local mode');
+        showToast('Store system connected');
       }
     } catch (e) {
-      console.warn('DB refresh error:', e);
+      console.warn('Status refresh error:', e);
     }
   };
 
@@ -920,6 +917,7 @@ export default function App() {
               onAddToCart={handleAddToCart}
               onToggleWishlist={handleToggleWishlist}
               onQuickView={(p) => setQuickViewProduct(p)}
+              wishlist={wishlist}
               isWishlisted={(id) => isWishlisted(id)}
               currentUser={currentUser}
               onOpenAuth={() => setIsAuthOpen(true)}
@@ -974,6 +972,7 @@ export default function App() {
                   setActiveTab('categories');
                 }}
                 isDarkMode={isDarkMode}
+                products={allProducts}
               />
 
               {/* 3 Promo Tiles */}
@@ -1231,6 +1230,7 @@ export default function App() {
         isDarkMode={isDarkMode}
         isOpenMobile={isMobileCartOpen}
         onCloseMobile={() => setIsMobileCartOpen(false)}
+        recommendedProducts={recProducts}
         isCollapsed={isRightSidebarCollapsed}
         onToggleCollapse={() => setIsRightSidebarCollapsed((prev) => !prev)}
       />

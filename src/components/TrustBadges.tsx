@@ -31,7 +31,7 @@ export const TrustBadges: React.FC<TrustBadgesProps> = ({ isDarkMode }) => {
     {
       icon: Users,
       title: 'Trusted Worldwide',
-      desc: 'Over 250,000+ Happy Shoppers',
+      desc: 'Verified Product Quality',
       color: '#D97706',
       bgColor: '#FEF3C7',
     },

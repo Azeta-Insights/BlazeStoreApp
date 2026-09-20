@@ -23,10 +23,55 @@ import {
 } from 'lucide-react';
 import { Product, AdminRole } from '../../types';
 import { api } from '../../services/api';
-import { saveFirestoreDoc } from '../../services/firestoreService';
+import { saveFirestoreDoc, clearAllFirestoreProducts } from '../../services/firestoreService';
 import { ImageUploader } from '../ImageUploader';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 import { formatNaira } from '../../lib/currency';
+import { CATEGORIES } from '../../data/mockData';
+
+export const normalizeCategoryName = (inputCat?: string): string => {
+  if (!inputCat || !inputCat.trim()) return 'Phones & Tablets';
+  const clean = inputCat.trim().toLowerCase();
+
+  if (clean.includes('phone') || clean.includes('tablet') || clean.includes('mobile phone') || clean.includes('electronics')) {
+    return 'Phones & Tablets';
+  }
+  if (clean.includes('appliance') || clean.includes('fridge') || clean.includes('freezer') || clean.includes('cooker') || clean.includes('oven')) {
+    return 'Appliances';
+  }
+  if (clean.includes('kid') || clean.includes('baby') || clean.includes('child') || clean.includes('toy')) {
+    return 'Kids & Baby';
+  }
+  if (clean.includes('fashion') || clean.includes('cloth') || clean.includes('dress') || clean.includes('shirt') || clean.includes('apparel')) {
+    return 'Fashion';
+  }
+  if (clean.includes('beauty') || clean.includes('skin') || clean.includes('makeup') || clean.includes('cosmetic')) {
+    return 'Beauty';
+  }
+  if (clean.includes('sneaker') || clean.includes('shoe') || clean.includes('footwear') || clean.includes('sports')) {
+    return 'Sneakers';
+  }
+  if (clean.includes('tv') || clean.includes('television') || clean.includes('screen') || clean.includes('display')) {
+    return 'Television';
+  }
+  if (clean.includes('office') || clean.includes('home & office') || clean.includes('furniture') || clean.includes('desk')) {
+    return 'Home & Office';
+  }
+  if (clean.includes('supermarket') || clean.includes('grocery') || clean.includes('food') || clean.includes('pantry') || clean.includes('coffee')) {
+    return 'Supermarket';
+  }
+  if (clean.includes('accessory') || clean.includes('accessories') || clean.includes('charger') || clean.includes('power bank') || clean.includes('case')) {
+    return 'Mobile Accessories';
+  }
+  if (clean.includes('comput') || clean.includes('laptop') || clean.includes('pc') || clean.includes('macbook')) {
+    return 'Computing';
+  }
+  if (clean.includes('sillage') || clean.includes('olfactory') || clean.includes('perfume') || clean.includes('fragrance') || clean.includes('brand festival') || clean.includes('eau de')) {
+    return 'Sillage & Olfactory';
+  }
+
+  return inputCat.trim();
+};
 
 interface AdminInventoryProps {
   adminRole: AdminRole;
@@ -51,6 +96,24 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+
+  const handleClearAllInventory = async () => {
+    setIsClearing(true);
+    try {
+      await api.clearAllProducts();
+      await clearAllFirestoreProducts().catch(() => {});
+      setProducts([]);
+      onShowToast('✨ All mock products cleared! Inventory is now ready for real data.');
+      setIsClearModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      onShowToast('❌ Failed to clear products');
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   // Add/Edit Form State
   const [formData, setFormData] = useState({
@@ -78,7 +141,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
       setProducts(data);
     } catch (e) {
       console.error('Failed to load inventory:', e);
-      onShowToast('❌ Failed to load inventory from Firestore');
+      onShowToast('❌ Failed to load inventory');
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +170,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
       onShowToast(`📦 Stock updated: ${prod.name} now has ${newStock} units`);
     } catch (e) {
       console.error(e);
-      onShowToast('❌ Failed to update stock on Firestore');
+      onShowToast('❌ Failed to update stock');
       loadInventory();
     }
   };
@@ -207,7 +270,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
           isHot: formData.isHot,
           inStock: Number(formData.stockQuantity) > 0 && formData.inStock,
         }).catch(() => {});
-        onShowToast(`✅ "${updated.name}" updated in Firestore inventory`);
+        onShowToast(`✅ "${updated.name}" updated successfully`);
       } else {
         // Create new product
         const created = await api.createProduct({
@@ -225,7 +288,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
           inStock: Number(formData.stockQuantity) > 0 && formData.inStock,
         });
         await saveFirestoreDoc('products', created.id, created).catch(() => {});
-        onShowToast(`🎉 "${created.name}" created and added to Firestore!`);
+        onShowToast(`🎉 "${created.name}" created and added to inventory!`);
       }
       setIsAddModalOpen(false);
       loadInventory();
@@ -275,18 +338,49 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
       return;
     }
 
-    const headers = ['ID', 'Name', 'Category', 'Price', 'StockQuantity', 'SKU', 'InStock', 'Rating', 'Badge', 'CostPrice', 'Description'];
+    const headers = [
+      'ID',
+      'Name',
+      'Category',
+      'Brand',
+      'Collection',
+      'Price',
+      'OriginalPrice',
+      'CostPrice',
+      'StockQuantity',
+      'SKU',
+      'IsDeal',
+      'IsBestSeller',
+      'IsNewArrival',
+      'IsHot',
+      'Badge',
+      'Colors',
+      'InStock',
+      'Rating',
+      'ImageURL',
+      'Description',
+    ];
+
     const rows = products.map((p) => [
       p.id,
       `"${(p.name || '').replace(/"/g, '""')}"`,
       `"${(p.category || '').replace(/"/g, '""')}"`,
+      `"${(p.brand || '').replace(/"/g, '""')}"`,
+      `"${(p.collection || '').replace(/"/g, '""')}"`,
       p.price,
+      p.originalPrice ?? '',
+      p.costPrice ?? 0,
       p.stockQuantity ?? 0,
       `"${(p.sku || '').replace(/"/g, '""')}"`,
+      p.isDeal ? 'TRUE' : 'FALSE',
+      p.isBestSeller ? 'TRUE' : 'FALSE',
+      p.isNewArrival ? 'TRUE' : 'FALSE',
+      p.isHot ? 'TRUE' : 'FALSE',
+      `"${(p.badge || '').replace(/"/g, '""')}"`,
+      `"${(p.colors ? p.colors.join(', ') : '').replace(/"/g, '""')}"`,
       p.inStock !== false ? 'TRUE' : 'FALSE',
       p.rating ?? 5,
-      `"${(p.badge || '').replace(/"/g, '""')}"`,
-      p.costPrice ?? 0,
+      `"${(p.image || '').replace(/"/g, '""')}"`,
       `"${(p.description || '').replace(/"/g, '""')}"`,
     ]);
 
@@ -299,7 +393,60 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    onShowToast(`📥 Exported ${products.length} catalog items to CSV.`);
+    onShowToast(`📥 Exported ${products.length} segmented catalog items to CSV.`);
+  };
+
+  const downloadSampleCsvTemplate = () => {
+    const templateContent = [
+      'Name,Category,Brand,Collection,Price,OriginalPrice,CostPrice,StockQuantity,SKU,ImageURL,Description,IsDeal,IsBestSeller,IsNewArrival,Badge,Colors',
+      '"iPhone 15 Pro Max 256GB","Phones & Tablets","Apple","Flagship Mobile",1450000,1600000,1200000,10,"BLZ-PHO-1001","https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=500","Titanium natural finish 6.7-inch Super Retina XDR display",TRUE,TRUE,TRUE,"Hot Deal","Natural Titanium, Blue Titanium"',
+      '"Double Door Inverter Refrigerator","Appliances","Nexus","Kitchen Essentials",380000,420000,310000,8,"BLZ-APP-2001","https://images.unsplash.com/photo-1583847268964-b28dc8f51f92?w=500","Energy efficient 250L double door frost-free refrigerator",TRUE,FALSE,FALSE,"10% OFF","Silver, Stainless Steel"',
+      '"Floral Baby Romper Set","Kids & Baby","Carter\'s","Baby Care 2026",18000,24000,11000,30,"BLZ-KID-3001","https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=500","Soft organic cotton 3-piece baby outfit set",FALSE,TRUE,TRUE,"New Arrival","Pink, Pastel Blue"',
+      '"Tailored Italian Wool Blazer","Fashion","Zara","Executive Wear",85000,110000,55000,12,"BLZ-FAS-4001","https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=500","Classic slim-fit Italian wool blazer for business and gala",TRUE,TRUE,FALSE,"Popular","Navy Blue, Charcoal Gray"',
+      '"Vitamin C Brightening Serum","Beauty","CeraVe","Skincare Glow",22000,28000,14000,45,"BLZ-BEA-5001","https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500","Dermatologist tested 10% pure vitamin C antioxidant serum",TRUE,TRUE,TRUE,"Best Seller","Clear"',
+      '"Air Max Retro Running Sneakers","Sneakers","Nike","Sportswear Classics",95000,120000,62000,20,"BLZ-SNK-6001","https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500","Lightweight breathable mesh athletic running shoes",TRUE,TRUE,FALSE,"Top Choice","Red/White, Black/Lime"',
+      '"55-inch 4K UHD Smart TV","Television","Samsung","Home Entertainment",420000,480000,350000,6,"BLZ-TV-7001","https://images.unsplash.com/photo-1593784991095-a205069470b6?w=500","Crystal 4K HDR smart television with voice remote",TRUE,FALSE,TRUE,"4K Ultra HD","Black"',
+      '"Ergonomic Executive Office Chair","Home & Office","Herman Miller","Workspace 2026",175000,210000,125000,15,"BLZ-OFF-8001","https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=500","Breathable mesh lumbar support adjustable swivel office chair",FALSE,TRUE,FALSE,"Ergonomic","Black, Space Gray"',
+      '"Gold Roast Coffee & Granola Pantry Pack","Supermarket","Nestle","Pantry Specials",12500,15000,8500,50,"BLZ-SUP-9001","https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=500","Premium roasted coffee beans with crunchy honey granola duo",TRUE,FALSE,FALSE,"Bulk Deal","Standard"',
+      '"Fast Charging Power Bank 20,000mAh","Mobile Accessories","Anker","Power Essentials",32000,40000,21000,35,"BLZ-ACC-1001","https://images.unsplash.com/photo-1584438784894-089d6a62b8fa?w=500","PD 22.5W fast charge dual USB-C portable battery bank",TRUE,TRUE,TRUE,"Fast Charge","Black, White"',
+      '"MacBook Air M3 15-inch 16GB","Computing","Apple","Pro Laptops",1650000,1800000,1380000,8,"BLZ-CMP-1101","https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500","Ultra-thin M3 chip laptop with Liquid Retina display",TRUE,TRUE,TRUE,"M3 Chip","Midnight, Starlight"',
+      '"Oud Royal Eau De Parfum 100ml","Sillage & Olfactory","Tom Ford","Sillage Collection",185000,220000,130000,12,"BLZ-SIL-1201","https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=500","Exquisite oriental wood and amber unisex eau de parfum",TRUE,TRUE,TRUE,"Exclusive","Gold Bottle"',
+    ].join('\n');
+
+    const blob = new Blob([templateContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'blazestore-inventory-template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onShowToast('📄 Downloaded inventory CSV template pre-segmented across all 12 departments.');
+  };
+
+  // Helper to parse CSV line handling quoted values
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result.map((col) => col.replace(/^"|"$/g, '').trim());
   };
 
   // CSV Import Handler
@@ -313,52 +460,141 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
         const text = evt.target?.result as string;
         if (!text) return;
 
-        const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
         if (lines.length <= 1) {
           onShowToast('⚠️ CSV file contains no product rows.');
           return;
         }
 
-        let importedCount = 0;
-        const newItems: Product[] = [];
+        // Parse header row
+        const headerCols = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        
+        // Find column indices
+        const findColIndex = (keywords: string[]): number => {
+          return headerCols.findIndex((h) => keywords.some((kw) => h.includes(kw)));
+        };
+
+        const idxName = findColIndex(['name', 'title', 'product']);
+        const idxCategory = findColIndex(['category', 'dept', 'department', 'type']);
+        const idxBrand = findColIndex(['brand', 'designer', 'vendor', 'make', 'manufacturer']);
+        const idxCollection = findColIndex(['collection', 'lookbook', 'season', 'series']);
+        const idxPrice = findColIndex(['price', 'costunit', 'retail']);
+        const idxOrigPrice = findColIndex(['originalprice', 'crossedprice', 'compareprice', 'rrp', 'listprice']);
+        const idxCostPrice = findColIndex(['costprice', 'buyingprice', 'cost']);
+        const idxStock = findColIndex(['stockquantity', 'stock', 'quantity', 'qty', 'count']);
+        const idxSku = findColIndex(['sku', 'code', 'barcode', 'itemcode']);
+        const idxImage = findColIndex(['imageurl', 'image', 'photo', 'picture', 'img']);
+        const idxDesc = findColIndex(['description', 'desc', 'details', 'summary']);
+        const idxBadge = findColIndex(['badge', 'promobadge', 'tagline', 'label']);
+        const idxIsDeal = findColIndex(['isdeal', 'deal', 'flashsale']);
+        const idxIsBestSeller = findColIndex(['isbestseller', 'bestseller', 'topitem']);
+        const idxIsNewArrival = findColIndex(['isnewarrival', 'newarrival', 'isnew']);
+        const idxIsHot = findColIndex(['ishot', 'hot', 'trending']);
+        const idxColors = findColIndex(['colors', 'color', 'swatches']);
+
+        const parseBool = (val?: string): boolean => {
+          if (!val) return false;
+          const v = val.toLowerCase();
+          return v === 'true' || v === '1' || v === 'yes' || v === 'y';
+        };
+
+        const newItems: Partial<Product>[] = [];
 
         for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
-          if (cols.length >= 4) {
-            const [id, name, category, priceStr, stockStr, sku, inStockStr] = cols;
-            if (name && priceStr) {
-              const itemPrice = parseFloat(priceStr) || 25000;
-              const itemStock = parseInt(stockStr, 10) || 20;
-              const productObj: Product = {
-                id: id || `imp-${Date.now()}-${i}`,
-                name,
-                category: category || 'General',
-                price: itemPrice,
-                stockQuantity: itemStock,
-                sku: sku || `SKU-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
-                inStock: inStockStr !== 'FALSE' && itemStock > 0,
-                rating: 5,
-                reviewCount: 0,
-                colors: ['#7C6FE0'],
-                image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
-                description: 'Imported product catalog item.',
-              };
-              newItems.push(productObj);
-              importedCount++;
+          const cols = parseCSVLine(lines[i]);
+          if (cols.length < 2) continue;
+
+          // Header-mapped values or fallback
+          let name = idxName !== -1 ? cols[idxName] : cols[0];
+          let categoryRaw = idxCategory !== -1 ? cols[idxCategory] : (cols[1] || 'Phones & Tablets');
+          let category = normalizeCategoryName(categoryRaw);
+          let brand = idxBrand !== -1 ? cols[idxBrand] : undefined;
+          let collection = idxCollection !== -1 ? cols[idxCollection] : undefined;
+          let priceStr = idxPrice !== -1 ? cols[idxPrice] : cols[2];
+          let origStr = idxOrigPrice !== -1 ? cols[idxOrigPrice] : cols[8];
+          let costStr = idxCostPrice !== -1 ? cols[idxCostPrice] : cols[7];
+          let stockStr = idxStock !== -1 ? cols[idxStock] : cols[3];
+          let sku = idxSku !== -1 ? cols[idxSku] : cols[4];
+          let image = idxImage !== -1 ? cols[idxImage] : cols[5];
+          let desc = idxDesc !== -1 ? cols[idxDesc] : cols[6];
+          let badge = idxBadge !== -1 ? cols[idxBadge] : undefined;
+          let isDeal = idxIsDeal !== -1 ? parseBool(cols[idxIsDeal]) : false;
+          let isBestSeller = idxIsBestSeller !== -1 ? parseBool(cols[idxIsBestSeller]) : false;
+          let isNewArrival = idxIsNewArrival !== -1 ? parseBool(cols[idxIsNewArrival]) : false;
+          let isHot = idxIsHot !== -1 ? parseBool(cols[idxIsHot]) : false;
+          let colorsStr = idxColors !== -1 ? cols[idxColors] : undefined;
+
+          // Fallback if column 1 looks like ID
+          if (cols[0] && (cols[0].startsWith('prod-') || cols[0].startsWith('imp-')) && idxName === -1) {
+            name = cols[1];
+            category = cols[2] || 'General';
+            priceStr = cols[3];
+            stockStr = cols[4];
+            sku = cols[5];
+            image = cols[6];
+            desc = cols[7];
+          }
+
+          if (name && (priceStr || idxPrice !== -1)) {
+            const itemPrice = parseFloat((priceStr || '0').replace(/[^0-9.]/g, '')) || 10000;
+            const itemStock = parseInt((stockStr || '15').replace(/[^0-9]/g, ''), 10);
+            const origPrice = origStr ? parseFloat(origStr.replace(/[^0-9.]/g, '')) : undefined;
+            const costPrice = costStr ? parseFloat(costStr.replace(/[^0-9.]/g, '')) : itemPrice * 0.55;
+
+            // Auto-detect isDeal, isBestSeller, isNewArrival if badge/discount implies it
+            if (!badge && origPrice && origPrice > itemPrice) {
+              const pct = Math.round(((origPrice - itemPrice) / origPrice) * 100);
+              badge = `${pct}% OFF`;
+              isDeal = true;
             }
+
+            const colorsArray = colorsStr
+              ? colorsStr.split(/[,|]/).map((c) => c.trim()).filter(Boolean)
+              : undefined;
+
+            const productObj: Partial<Product> = {
+              name,
+              category: category || 'General',
+              brand: brand || undefined,
+              collection: collection || undefined,
+              price: itemPrice,
+              originalPrice: origPrice,
+              costPrice: costPrice,
+              stockQuantity: itemStock >= 0 ? itemStock : 10,
+              sku: sku || `BLZ-${(category || 'GEN').slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`,
+              inStock: itemStock > 0,
+              rating: 5,
+              reviewCount: 0,
+              badge: badge || (isNewArrival ? 'New Arrival' : isBestSeller ? 'Best Seller' : isDeal ? 'Hot Deal' : 'In Stock'),
+              isDeal,
+              isBestSeller,
+              isNewArrival,
+              isHot: isHot || isDeal,
+              colors: colorsArray,
+              image: image || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
+              description: desc || 'Genuine store inventory item.',
+            };
+            newItems.push(productObj);
           }
         }
 
         if (newItems.length > 0) {
-          setProducts((prev) => [...newItems, ...prev]);
-          onShowToast(`🚀 Successfully imported ${importedCount} products from CSV!`);
+          const res = await api.bulkImportProducts(newItems);
+          if (res.products && res.products.length > 0) {
+            setProducts((prev) => [...res.products, ...prev]);
+            for (const p of res.products) {
+              await saveFirestoreDoc('products', p.id, p).catch(() => {});
+            }
+            onShowToast(`🚀 Successfully imported ${res.products.length} segmented products with Brands & Collections!`);
+          }
+        } else {
+          onShowToast('⚠️ Could not parse valid product rows from CSV.');
         }
       } catch (err: any) {
         onShowToast(`❌ Failed to parse CSV: ${err.message}`);
       }
     };
     reader.readAsText(file);
-    // reset input
     e.target.value = '';
   };
 
@@ -408,9 +644,9 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight">Manage Inventory & Catalog</h2>
+            <h2 className="text-xl font-black tracking-tight">Manage Inventory &amp; Catalog</h2>
             <span className="rounded-full bg-[#10B981]/15 px-2.5 py-0.5 text-xs font-bold text-[#10B981]">
-              Firestore Synced
+              Live Synced
             </span>
           </div>
           <p className="text-xs text-[#8A8A94] mt-0.5">
@@ -429,13 +665,26 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
           />
 
           <button
+            onClick={downloadSampleCsvTemplate}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+              isDarkMode
+                ? 'border-[#27272A] text-[#A1A1AA] hover:bg-[#202024] hover:text-white'
+                : 'border-[#EDEDF2] text-[#52525B] hover:bg-[#FAF9FC] hover:text-[#1F1F23]'
+            }`}
+            title="Download blank CSV template pre-segmented for stock import"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-[#7C6FE0]" />
+            <span>CSV Template</span>
+          </button>
+
+          <button
             onClick={() => fileInputRef.current?.click()}
             className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
               isDarkMode
                 ? 'border-[#27272A] text-[#A1A1AA] hover:bg-[#202024] hover:text-white'
                 : 'border-[#EDEDF2] text-[#52525B] hover:bg-[#FAF9FC] hover:text-[#1F1F23]'
             }`}
-            title="Import products from a CSV spreadsheet"
+            title="Import real products from CSV spreadsheet"
           >
             <Upload className="h-3.5 w-3.5" />
             <span>Import CSV</span>
@@ -455,11 +704,20 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
           </button>
 
           <button
+            onClick={() => setIsClearModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 text-xs font-bold transition cursor-pointer"
+            title="Clear mock or out-of-stock demo inventory"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Clear Mock Stock</span>
+          </button>
+
+          <button
             onClick={loadInventory}
             className={`p-2 rounded-xl border text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition ${
               isDarkMode ? 'border-[#27272A] text-[#A1A1AA]' : 'border-[#EDEDF2] text-[#52525B]'
             }`}
-            title="Refresh inventory from Firestore"
+            title="Refresh inventory"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -472,6 +730,30 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
             <Plus className="h-4 w-4" />
             <span>Add New Product</span>
           </button>
+        </div>
+      </div>
+
+      {/* 12 Synced Department Segments Helper Banner */}
+      <div className="p-3.5 rounded-2xl bg-[#7C6FE0]/10 border border-[#7C6FE0]/25 text-xs space-y-1.5 shadow-xs">
+        <div className="flex items-center gap-2 font-black text-[#7C6FE0]">
+          <Sparkles className="h-4 w-4" />
+          <span>12 Department Segments Synced for Stock Import &amp; CSV Template</span>
+        </div>
+        <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+          When preparing your stock upload spreadsheet, use any of these 12 official department segment names in the <strong>Category</strong> column to automatically populate picture bubbles and catalog filters:
+        </p>
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          {CATEGORIES.map((cat) => (
+            <span
+              key={cat.id}
+              className="text-[10px] font-extrabold px-2.5 py-1 rounded-lg bg-white dark:bg-[#18181B] border border-[#EDEDF2] dark:border-[#27272A] text-[#1F1F23] dark:text-[#F8FAFC] shadow-2xs flex items-center gap-1.5"
+            >
+              {cat.image ? (
+                <img src={cat.image} alt={cat.name} className="h-3.5 w-3.5 rounded-full object-cover" />
+              ) : null}
+              <span>{cat.name}</span>
+            </span>
+          ))}
         </div>
       </div>
 
@@ -597,13 +879,12 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
               isDarkMode ? 'bg-[#202024] border border-[#27272A] text-white' : 'bg-[#FAF9FC] border border-[#EDEDF2] text-[#1F1F23]'
             }`}
           >
-            <option value="all">All Categories</option>
-            <option value="Fashion">Fashion</option>
-            <option value="Electronics">Electronics</option>
-            <option value="Beauty">Beauty & Skincare</option>
-            <option value="Home">Home & Living</option>
-            <option value="Sports">Sports</option>
-            <option value="Bags">Bags & Accessories</option>
+            <option value="all">All Departments ({products.length})</option>
+            {CATEGORIES.map((cat) => (
+              <option key={cat.id} value={cat.name}>
+                {cat.name}
+              </option>
+            ))}
           </select>
 
           {stockFilter !== 'all' && (
@@ -795,7 +1076,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
                 <h3 className="font-bold text-base">
                   {editingProduct ? 'Edit Catalog Product' : 'Add New Inventory SKU'}
                 </h3>
-                <span className="text-[11px] text-[#8A8A94]">Syncs directly with Firestore `products`</span>
+                <span className="text-[11px] text-[#8A8A94]">Live store catalog updates</span>
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
@@ -826,12 +1107,11 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     className="w-full rounded-xl border border-[#EDEDF2] dark:border-[#27272A] bg-[#FAF9FC] dark:bg-[#202024] px-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#7C6FE0]"
                   >
-                    <option value="Fashion">Fashion</option>
-                    <option value="Electronics">Electronics</option>
-                    <option value="Beauty">Beauty & Skincare</option>
-                    <option value="Home & Living">Home & Living</option>
-                    <option value="Sports">Sports</option>
-                    <option value="Bags & Accessories">Bags & Accessories</option>
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat.id} value={cat.name}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -958,7 +1238,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
                     disabled={isSubmitting}
                     className="flex items-center gap-1.5 rounded-xl bg-[#7C6FE0] px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#6D60D6] disabled:opacity-50"
                   >
-                    {isSubmitting ? 'Saving to Firestore...' : editingProduct ? 'Save Changes' : 'Create Product'}
+                    {isSubmitting ? 'Saving...' : editingProduct ? 'Save Changes' : 'Create Product'}
                   </button>
                 </div>
               </div>
@@ -967,7 +1247,7 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
         </div>
       )}
 
-      {/* In-app Confirmation Modal for Deleting Products */}
+      {/* In-app Confirmation Modal for Deleting Single Product */}
       <ConfirmDeleteModal
         isOpen={Boolean(productToDelete)}
         onClose={() => setProductToDelete(null)}
@@ -977,6 +1257,19 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
         itemName={productToDelete ? `${productToDelete.name} (${productToDelete.sku || productToDelete.id})` : undefined}
         confirmText="Delete Product"
         isLoading={isDeleting}
+        isDarkMode={isDarkMode}
+      />
+
+      {/* Confirmation Modal for Clearing Entire Mock Catalog */}
+      <ConfirmDeleteModal
+        isOpen={isClearModalOpen}
+        onClose={() => setIsClearModalOpen(false)}
+        onConfirm={handleClearAllInventory}
+        title="Clear Entire Inventory Catalog?"
+        message="This will wipe all existing sample/mock products from the website database and local cache so you can start with a completely clean slate for real store data."
+        itemName={`All ${products.length} catalog items`}
+        confirmText="Clear All Stock Now"
+        isLoading={isClearing}
         isDarkMode={isDarkMode}
       />
     </div>

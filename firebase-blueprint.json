@@ -1,113 +1,112 @@
 {
   "entities": {
-    "User": {
-      "collection": "users",
-      "fields": {
-        "id": { "type": "string", "description": "Unique user ID" },
-        "name": { "type": "string", "description": "Full name of the user" },
-        "email": { "type": "string", "description": "User email address" },
-        "role": { "type": "string", "description": "User role: owner, manager, or customer" },
-        "roleType": { "type": "string", "description": "Standardized role tag" },
-        "phone": { "type": "string", "optional": true },
-        "avatar": { "type": "string", "optional": true },
-        "createdAt": { "type": "string", "description": "ISO creation date timestamp" }
-      },
-      "roles": {
-        "owner": { "read": true, "write": true, "delete": true, "manageRoles": true },
-        "manager": { "read": true, "write": false, "delete": false, "manageRoles": false },
-        "customer": { "read": "self", "write": "self_no_role_change", "delete": false, "manageRoles": false }
-      }
-    },
     "Product": {
-      "collection": "products",
-      "fields": {
+      "title": "Product",
+      "description": "Store inventory product",
+      "type": "object",
+      "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "category": { "type": "string" },
         "price": { "type": "number" },
-        "originalPrice": { "type": "number", "optional": true },
-        "discountPercentage": { "type": "number", "optional": true },
-        "rating": { "type": "number" },
-        "reviewCount": { "type": "number" },
-        "stockQuantity": { "type": "number", "optional": true },
-        "description": { "type": "string", "optional": true },
+        "originalPrice": { "type": "number" },
+        "category": { "type": "string" },
         "image": { "type": "string" },
-        "badge": { "type": "string", "optional": true },
-        "isHot": { "type": "boolean", "optional": true },
-        "isDeal": { "type": "boolean", "optional": true },
-        "isNewArrival": { "type": "boolean", "optional": true },
-        "colors": { "type": "array", "optional": true },
-        "inStock": { "type": "boolean", "optional": true }
+        "inStock": { "type": "boolean" },
+        "stockQuantity": { "type": "number" },
+        "description": { "type": "string" },
+        "sku": { "type": "string" },
+        "featured": { "type": "boolean" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" }
       },
-      "roles": {
-        "owner": { "read": true, "write": true, "delete": true },
-        "manager": { "read": true, "write": true, "delete": true },
-        "customer": { "read": true, "write": false, "delete": false }
-      }
-    },
-    "Cart": {
-      "collection": "carts",
-      "fields": {
-        "userId": { "type": "string" },
-        "items": { "type": "array" },
-        "updatedAt": { "type": "string", "optional": true }
-      },
-      "roles": {
-        "owner": { "read": true, "write": true, "delete": true },
-        "manager": { "read": false, "write": false, "delete": false },
-        "customer": { "read": "self", "write": "self", "delete": "self" }
-      }
+      "required": ["id", "name", "price", "category"]
     },
     "Order": {
-      "collection": "orders",
-      "fields": {
+      "title": "Order",
+      "description": "Customer purchase order",
+      "type": "object",
+      "properties": {
         "orderId": { "type": "string" },
-        "userId": { "type": "string", "optional": true },
+        "userId": { "type": "string" },
         "customer": { "type": "object" },
         "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discount": { "type": "number" },
+        "shipping": { "type": "number" },
         "total": { "type": "number" },
+        "currency": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "paymentStatus": { "type": "string" },
         "status": { "type": "string" },
-        "refundAmount": { "type": "number", "optional": true },
-        "refundStatus": { "type": "string", "optional": true, "description": "none, approved, or pending_owner_approval" },
         "createdAt": { "type": "string" }
       },
-      "roles": {
-        "owner": { "read": true, "write": true, "delete": true },
-        "manager": { "read": true, "write": "orders_and_refunds_under_200", "delete": false },
-        "customer": { "read": "self", "write": "create_self_order", "delete": false }
-      }
+      "required": ["orderId", "total", "status"]
     },
-    "Refund": {
-      "collection": "refunds",
-      "fields": {
+    "User": {
+      "title": "User",
+      "description": "Registered customer or store manager profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string" },
+        "roleType": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email", "name"]
+    },
+    "RefundRecord": {
+      "title": "RefundRecord",
+      "description": "Refund transaction",
+      "type": "object",
+      "properties": {
         "id": { "type": "string" },
         "orderId": { "type": "string" },
         "amount": { "type": "number" },
         "reason": { "type": "string" },
-        "status": { "type": "string", "description": "approved or pending_owner_approval" },
         "refundedBy": { "type": "string" },
-        "adminRole": { "type": "string" },
+        "status": { "type": "string" },
         "createdAt": { "type": "string" }
       },
-      "roles": {
-        "owner": { "read": true, "write": true, "delete": true, "approveAll": true },
-        "manager": { "read": true, "createUnder200": true, "flagAbove200": true, "delete": false },
-        "customer": { "read": false, "write": false, "delete": false }
-      }
+      "required": ["id", "orderId", "amount", "status"]
     },
-    "RevenueReport": {
-      "collection": "revenue_reports",
-      "fields": {
-        "grossRevenue": { "type": "number" },
-        "netRevenue": { "type": "number" },
-        "dailyRevenue": { "type": "array" },
-        "categorySales": { "type": "array" }
+    "Notification": {
+      "title": "Notification",
+      "description": "Store activity notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "time": { "type": "string" },
+        "read": { "type": "boolean" },
+        "type": { "type": "string" }
       },
-      "roles": {
-        "owner": { "read": true, "write": true, "exportRaw": true },
-        "manager": { "read": true, "write": false, "exportRaw": false },
-        "customer": { "read": false, "write": false, "exportRaw": false }
-      }
+      "required": ["id", "title", "message"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "#/entities/Product",
+      "description": "Inventory products collection"
+    },
+    "/orders/{orderId}": {
+      "schema": "#/entities/Order",
+      "description": "Customer orders collection"
+    },
+    "/users/{userId}": {
+      "schema": "#/entities/User",
+      "description": "User profiles collection"
+    },
+    "/refunds/{refundId}": {
+      "schema": "#/entities/RefundRecord",
+      "description": "Refund logs collection"
+    },
+    "/notifications/{notifId}": {
+      "schema": "#/entities/Notification",
+      "description": "Notifications collection"
     }
   }
 }

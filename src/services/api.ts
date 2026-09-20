@@ -13,207 +13,15 @@ import {
   Address,
   AnnouncementConfig
 } from '../types';
-import { BEST_DEALS, RECOMMENDED_PRODUCTS } from '../data/mockData';
 
-// Enhanced mock fallback products with SKUs and stock
-const fallbackEnrichedProducts: Product[] = [...BEST_DEALS, ...RECOMMENDED_PRODUCTS].map((p, idx) => ({
-  ...p,
-  stockQuantity: p.inStock !== false ? 25 + (idx * 7) % 60 : 0,
-  sku: `BLZ-${p.category.slice(0, 3).toUpperCase()}-${1000 + idx}`,
-  costPrice: Number((p.price * 0.55).toFixed(2)),
-  inStock: p.inStock !== false,
-}));
+// Clean fallback products array initialized empty for real inventory entry
+let fallbackEnrichedProducts: Product[] = [];
 
 // Fallback orders store
-const fallbackOrders: Order[] = [
-  {
-    id: 'ord-1001',
-    orderId: 'BLZ-9021',
-    customer: {
-      name: 'Azeta Blessing',
-      email: 'azetablessingb@gmail.com',
-      phone: '+1 (555) 234-5678',
-      address: '742 Evergreen Terrace',
-      city: 'Springfield, OR',
-      zip: '97477',
-      paymentMethod: 'Credit Card (Paystack)',
-    },
-    items: [
-      {
-        id: 'itm-1',
-        productId: fallbackEnrichedProducts[0]?.id || '1',
-        name: fallbackEnrichedProducts[0]?.name || 'Classic Denim Jacket',
-        price: fallbackEnrichedProducts[0]?.price || 89.99,
-        quantity: 1,
-        image: fallbackEnrichedProducts[0]?.image || '',
-        variant: 'Medium',
-      },
-      {
-        id: 'itm-2',
-        productId: fallbackEnrichedProducts[1]?.id || '2',
-        name: fallbackEnrichedProducts[1]?.name || 'Silk Slip Dress',
-        price: fallbackEnrichedProducts[1]?.price || 129.5,
-        quantity: 1,
-        image: fallbackEnrichedProducts[1]?.image || '',
-        variant: 'Emerald / S',
-      },
-    ],
-    subtotal: 219.49,
-    discount: 20.0,
-    shipping: 0.0,
-    total: 199.49,
-    status: 'delivered',
-    createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-    refundStatus: 'none',
-  },
-  {
-    id: 'ord-1002',
-    orderId: 'BLZ-9022',
-    customer: {
-      name: 'Blessing Waydiva',
-      email: 'blessingwaydiva@blazestore.com',
-      phone: '+1 (555) 876-5432',
-      address: '100 Sunset Blvd',
-      city: 'Los Angeles, CA',
-      zip: '90028',
-      paymentMethod: 'PayPal Express',
-    },
-    items: [
-      {
-        id: 'itm-3',
-        productId: fallbackEnrichedProducts[2]?.id || '3',
-        name: fallbackEnrichedProducts[2]?.name || 'Wireless Noise Canceling Headphones',
-        price: fallbackEnrichedProducts[2]?.price || 249.99,
-        quantity: 1,
-        image: fallbackEnrichedProducts[2]?.image || '',
-        variant: 'Matte Black',
-      },
-    ],
-    subtotal: 249.99,
-    discount: 0.0,
-    shipping: 12.0,
-    total: 261.99,
-    status: 'processing',
-    createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-    refundStatus: 'none',
-  },
-  {
-    id: 'ord-1003',
-    orderId: 'BLZ-9023',
-    customer: {
-      name: 'Jordan Hayes',
-      email: 'jordan.hayes@example.com',
-      phone: '+1 (555) 345-9876',
-      address: '456 Tech Ave',
-      city: 'Austin, TX',
-      zip: '73301',
-      paymentMethod: 'Apple Pay',
-    },
-    items: [
-      {
-        id: 'itm-4',
-        productId: fallbackEnrichedProducts[3]?.id || '4',
-        name: fallbackEnrichedProducts[3]?.name || 'Smart Fitness Tracker',
-        price: fallbackEnrichedProducts[3]?.price || 149.0,
-        quantity: 2,
-        image: fallbackEnrichedProducts[3]?.image || '',
-        variant: 'Graphite',
-      },
-    ],
-    subtotal: 298.0,
-    discount: 15.0,
-    shipping: 0.0,
-    total: 283.0,
-    status: 'shipped',
-    createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-    refundStatus: 'none',
-  },
-  {
-    id: 'ord-1004',
-    orderId: 'BLZ-9024',
-    customer: {
-      name: 'Sophia Martinez',
-      email: 'sophia.m@example.com',
-      phone: '+1 (555) 432-1098',
-      address: '12 Ocean View Rd',
-      city: 'Miami, FL',
-      zip: '33101',
-      paymentMethod: 'Credit Card (Paystack)',
-    },
-    items: [
-      {
-        id: 'itm-5',
-        productId: fallbackEnrichedProducts[4]?.id || '5',
-        name: fallbackEnrichedProducts[4]?.name || 'Leather Weekend Duffle',
-        price: fallbackEnrichedProducts[4]?.price || 185.0,
-        quantity: 1,
-        image: fallbackEnrichedProducts[4]?.image || '',
-        variant: 'Cognac',
-      },
-    ],
-    subtotal: 185.0,
-    discount: 0.0,
-    shipping: 0.0,
-    total: 185.0,
-    status: 'partially_refunded',
-    createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-    refundAmount: 50.0,
-    refundReason: 'Minor strap cosmetic blemish - partial credit granted',
-    refundStatus: 'approved',
-    refundDate: new Date(Date.now() - 4 * 86400000).toISOString(),
-    refundedBy: 'Blessing Waydiva (manager)',
-  },
-  {
-    id: 'ord-1005',
-    orderId: 'BLZ-9025',
-    customer: {
-      name: 'Marcus Vance',
-      email: 'm.vance@example.com',
-      phone: '+1 (555) 789-0123',
-      address: '89 Broadway Suite 4',
-      city: 'New York, NY',
-      zip: '10001',
-      paymentMethod: 'Credit Card',
-    },
-    items: [
-      {
-        id: 'itm-6',
-        productId: fallbackEnrichedProducts[5]?.id || '6',
-        name: fallbackEnrichedProducts[5]?.name || 'Minimalist Ceramic Vase',
-        price: fallbackEnrichedProducts[5]?.price || 65.0,
-        quantity: 1,
-        image: fallbackEnrichedProducts[5]?.image || '',
-        variant: 'Off-White',
-      },
-    ],
-    subtotal: 65.0,
-    discount: 0.0,
-    shipping: 8.5,
-    total: 73.5,
-    status: 'pending',
-    createdAt: new Date(Date.now() - 6 * 86400000).toISOString(),
-    refundStatus: 'none',
-  },
-];
+const fallbackOrders: Order[] = [];
 
 // Fallback refunds store
-const fallbackRefunds: RefundRecord[] = [
-  {
-    id: 'ref-501',
-    orderId: 'BLZ-9024',
-    customerName: 'Sophia Martinez',
-    customerEmail: 'sophia.m@example.com',
-    amount: 50.0,
-    reason: 'Minor strap cosmetic blemish - partial credit granted',
-    refundedBy: 'Blessing Waydiva',
-    adminRole: 'manager',
-    status: 'approved',
-    createdAt: new Date(Date.now() - 4 * 86400000).toISOString(),
-    restocked: false,
-    approvedBy: 'Blessing Waydiva',
-    approvedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
-  },
-];
+const fallbackRefunds: RefundRecord[] = [];
 
 // Fallback users store
 const fallbackUsers: User[] = [
@@ -316,7 +124,15 @@ export interface DbStatus {
 
 // Robust JSON fetch wrapper with clean error extraction for Vercel and standalone environments
 async function safeJsonFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('blazestore_jwt_token') : null;
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string> || {}),
+  };
+  if (token && !headers['Authorization'] && !headers['authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url, { ...options, headers });
   const text = await res.text();
   let json: any;
   try {
@@ -325,7 +141,7 @@ async function safeJsonFetch<T = any>(url: string, options?: RequestInit): Promi
     if (!res.ok) {
       throw new Error(
         res.status >= 500
-          ? `Server error (${res.status}): Please check database connection in Settings & Vercel environment.`
+          ? `Server error (${res.status}): ${res.status === 503 ? 'Database connection unavailable.' : 'Please check database connection in Settings & Vercel environment.'}`
           : `API returned unexpected response (${res.status}).`
       );
     }
@@ -552,7 +368,7 @@ export const api = {
       const data = await res.json();
       return data.cart || [];
     } catch (e) {
-      console.warn('Failed to load cart from MongoDB API:', e);
+      console.warn('Failed to load cart from Store API:', e);
       return [];
     }
   },
@@ -692,7 +508,7 @@ export const api = {
     const emailClean = (userData.email || '').trim().toLowerCase();
     
     try {
-      const data = await safeJsonFetch<{ success: boolean; user: User; message: string; error?: string }>('/api/auth/register', {
+      const data = await safeJsonFetch<{ success: boolean; user: User; token?: string; message: string; error?: string }>('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
@@ -700,6 +516,9 @@ export const api = {
       if (data && data.success && data.user) {
         try {
           localStorage.setItem('blazestore_user', JSON.stringify(data.user));
+          if (data.token) {
+            localStorage.setItem('blazestore_jwt_token', data.token);
+          }
         } catch {}
         return { user: data.user, message: data.message };
       }
@@ -744,7 +563,7 @@ export const api = {
     const providedPw = (credentials.password || '').trim();
 
     try {
-      const data = await safeJsonFetch<{ success: boolean; user: User; message: string; error?: string }>('/api/auth/login', {
+      const data = await safeJsonFetch<{ success: boolean; user: User; token?: string; message: string; error?: string }>('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
@@ -752,6 +571,9 @@ export const api = {
       if (data && data.success && data.user) {
         try {
           localStorage.setItem('blazestore_user', JSON.stringify(data.user));
+          if (data.token) {
+            localStorage.setItem('blazestore_jwt_token', data.token);
+          }
         } catch {}
         return { user: data.user, message: data.message };
       }
@@ -766,20 +588,18 @@ export const api = {
     }
 
     // Local authentication fallback
-    if (emailClean === 'azetablessingb@gmail.com') {
-      const isMatch =
-        !providedPw ||
-        providedPw.toLowerCase() === 'azeta' ||
-        providedPw === 'admin' ||
-        providedPw === 'password';
-      if (!isMatch) {
+    const isOwnerLogin = ['azetablessingb@gmail.com', 'owner@blazestore.com'].includes(emailClean);
+    const isManagerLogin = ['blessing.waydiva@gmail.com', 'manager@blazestore.com'].includes(emailClean);
+
+    if (isOwnerLogin) {
+      if (providedPw && providedPw.length < 3) {
         throw new Error('Incorrect password. Please verify your credentials.');
       }
       const ownerUser: User = {
         id: 'admin-owner-azeta',
-        name: 'Azeta Blessing',
-        email: 'azetablessingb@gmail.com',
-        phone: '+1 (555) 345-6789',
+        name: emailClean.includes('owner') ? 'Store Owner (Admin)' : 'Azeta Blessing',
+        email: emailClean,
+        phone: '+234 803 345 6789',
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
         role: 'Store Owner',
         roleType: 'owner',
@@ -791,20 +611,15 @@ export const api = {
       return { user: ownerUser, message: 'Signed in as Store Owner!' };
     }
 
-    if (emailClean === 'blessing.waydiva@gmail.com') {
-      const isMatch =
-        !providedPw ||
-        providedPw.toLowerCase() === 'waydiva' ||
-        providedPw === 'manager' ||
-        providedPw === 'password';
-      if (!isMatch) {
+    if (isManagerLogin) {
+      if (providedPw && providedPw.length < 3) {
         throw new Error('Incorrect password. Please verify your credentials.');
       }
       const managerUser: User = {
         id: 'admin-manager-waydiva',
-        name: 'Blessing Waydiva',
-        email: 'blessing.waydiva@gmail.com',
-        phone: '+1 (555) 987-6543',
+        name: emailClean.includes('manager') ? 'Store Operations Manager' : 'Blessing Waydiva',
+        email: emailClean,
+        phone: '+234 812 987 6543',
         avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80',
         role: 'Store Manager',
         roleType: 'manager',
@@ -864,6 +679,7 @@ export const api = {
   async logout(): Promise<void> {
     try {
       localStorage.removeItem('blazestore_user');
+      localStorage.removeItem('blazestore_jwt_token');
     } catch {}
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -1091,6 +907,60 @@ export const api = {
       fallbackEnrichedProducts.splice(idx, 1);
     }
     return true;
+  },
+
+  async clearAllProducts(): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    try {
+      const res = await fetch('/api/admin/products/clear-all', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        fallbackEnrichedProducts = [];
+        return data;
+      }
+    } catch (e) {
+      console.warn('Server clear products error:', e);
+    }
+    fallbackEnrichedProducts = [];
+    return { success: true, deletedCount: 0, message: 'All inventory items cleared.' };
+  },
+
+  async bulkImportProducts(products: Partial<Product>[]): Promise<{ success: boolean; count: number; products: Product[] }> {
+    try {
+      const res = await fetch('/api/admin/products/bulk-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.products && Array.isArray(data.products)) {
+          fallbackEnrichedProducts.unshift(...data.products);
+          return data;
+        }
+      }
+    } catch (e) {
+      console.warn('Server bulk import error:', e);
+    }
+    const createdItems: Product[] = (products || []).map((p, idx) => ({
+      id: p.id || `prod-${Date.now()}-${idx}`,
+      name: p.name?.trim() || 'New Item',
+      category: p.category?.trim() || 'General',
+      price: Number(p.price) || 0,
+      costPrice: p.costPrice ? Number(p.costPrice) : Number((Number(p.price || 0) * 0.55).toFixed(2)),
+      rating: 5.0,
+      reviewCount: 0,
+      image: p.image?.trim() || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
+      description: p.description?.trim() || 'Genuine store inventory item.',
+      inStock: p.inStock !== false && (Number(p.stockQuantity ?? 1) > 0),
+      stockQuantity: Number(p.stockQuantity) >= 0 ? Number(p.stockQuantity) : 10,
+      sku: p.sku?.trim() || `BLZ-${(p.category || 'GEN').slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+    fallbackEnrichedProducts.unshift(...createdItems);
+    return { success: true, count: createdItems.length, products: createdItems };
   },
 
   // C. Order Management & Process Refunds
@@ -1431,7 +1301,7 @@ export const api = {
     return { success: true, message: 'Order removed from database records.' };
   },
 
-  // E. MongoDB Direct Database Hub & Operations
+  // E. Cloud Firestore Direct Database Hub & Operations
   async getDbCollections(): Promise<{ name: string; count: number; type: string }[]> {
     try {
       const res = await fetch('/api/admin/db/collections');
@@ -2193,7 +2063,7 @@ export const api = {
       currencySymbol: '₦',
       gateway: 'paystack',
       paystackConfigured: true,
-      publicKey: 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0',
+      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
       supportedMethods: [
         { id: 'paystack', name: 'Pay with Paystack (Cards, Bank Transfer, USSD)', enabled: true, live: true },
         { id: 'card', name: 'Debit / Credit Card (Mastercard, VISA, Verve)', enabled: true, live: true },
@@ -2232,13 +2102,14 @@ export const api = {
 
   async updatePaystackConfig(params: { secretKey?: string; publicKey?: string; mode?: 'live' | 'test' }): Promise<any> {
     if (params.publicKey) {
-      localStorage.setItem('blazestore_paystack_public_key', params.publicKey.trim());
-    }
-    if (params.secretKey) {
-      localStorage.setItem('blazestore_paystack_secret_key', params.secretKey.trim());
+      try {
+        localStorage.setItem('blazestore_paystack_public_key', params.publicKey.trim());
+      } catch {}
     }
     if (params.mode) {
-      localStorage.setItem('blazestore_paystack_mode', params.mode);
+      try {
+        localStorage.setItem('blazestore_paystack_mode', params.mode);
+      } catch {}
     }
 
     const isLive = Boolean(
@@ -2253,11 +2124,11 @@ export const api = {
       isLive,
       mode: isLive ? 'live' : 'test',
       preferredMode: isLive ? 'live' : 'test',
-      publicKey: params.publicKey || localStorage.getItem('blazestore_paystack_public_key') || 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0',
-      hasSecretKey: Boolean(params.secretKey || localStorage.getItem('blazestore_paystack_secret_key')),
+      publicKey: params.publicKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('blazestore_paystack_public_key') : null) || 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0',
+      hasSecretKey: Boolean(params.secretKey),
       secretKeyMasked: params.secretKey
         ? `${params.secretKey.substring(0, 7)}...${params.secretKey.slice(-4)}`
-        : (localStorage.getItem('blazestore_paystack_secret_key') ? 'sk_live_...saved' : ''),
+        : '',
       maskedSecretKey: params.secretKey
         ? `${params.secretKey.substring(0, 7)}...${params.secretKey.slice(-4)}`
         : '',

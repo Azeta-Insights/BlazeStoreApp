@@ -18,7 +18,6 @@ import {
   LayoutDashboard
 } from 'lucide-react';
 import { CartItem, Product, User } from '../types';
-import { YOU_MIGHT_LIKE, RECENTLY_VIEWED } from '../data/mockData';
 import { UserProfileMenu } from './UserProfileMenu';
 import { formatNaira } from '../lib/currency';
 
@@ -42,6 +41,7 @@ interface CartSidebarProps {
   onCloseMobile?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  recommendedProducts?: Product[];
 }
 
 export const CartSidebar: React.FC<CartSidebarProps> = ({
@@ -64,6 +64,7 @@ export const CartSidebar: React.FC<CartSidebarProps> = ({
   onCloseMobile,
   isCollapsed = false,
   onToggleCollapse,
+  recommendedProducts = [],
 }) => {
   const [promoCode, setPromoCode] = useState('');
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; percent: number } | null>({
@@ -424,66 +425,45 @@ export const CartSidebar: React.FC<CartSidebarProps> = ({
             </div>
           </div>
 
-          {/* You Might Also Like */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[#475569] dark:text-[#94A3B8]">
-                You might also like
-              </h4>
-            </div>
-            <div className="space-y-2">
-              {YOU_MIGHT_LIKE.map((prod) => (
-                <div
-                  key={prod.id}
-                  className="flex items-center justify-between gap-2.5 rounded-xl border border-[#CBD5E1] dark:border-[#27272A] p-2 bg-white dark:bg-[#1E1E22] transition hover:border-[#7C6FE0]/40 shadow-xs"
-                >
-                  <img
-                    src={prod.image}
-                    alt={prod.name}
-                    referrerPolicy="no-referrer"
-                    className="h-10 w-10 rounded-lg object-cover bg-[#F1F5F9]"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC] truncate leading-tight">{prod.name}</p>
-                    <p className="text-[11px] font-extrabold text-[#7C6FE0]">
-                      {formatNaira(prod.price)}
-                    </p>
-                  </div>
-                  <button
-                    id={`add-mini-item-${prod.id}`}
-                    onClick={() => onAddToCart(prod)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#7C6FE0]/15 text-[#7C6FE0] hover:bg-[#7C6FE0] hover:text-white transition"
-                    title="Quick add to cart"
+          {/* Recommended Products (if items exist in catalog) */}
+          {recommendedProducts && recommendedProducts.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#475569] dark:text-[#94A3B8]">
+                  You might also like
+                </h4>
+              </div>
+              <div className="space-y-2">
+                {recommendedProducts.slice(0, 3).map((prod) => (
+                  <div
+                    key={prod.id}
+                    className="flex items-center justify-between gap-2.5 rounded-xl border border-[#CBD5E1] dark:border-[#27272A] p-2 bg-white dark:bg-[#1E1E22] transition hover:border-[#7C6FE0]/40 shadow-xs"
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
+                    <img
+                      src={prod.image}
+                      alt={prod.name}
+                      referrerPolicy="no-referrer"
+                      className="h-10 w-10 rounded-lg object-cover bg-[#F1F5F9]"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-[#0F172A] dark:text-[#F8FAFC] truncate leading-tight">{prod.name}</p>
+                      <p className="text-[11px] font-extrabold text-[#7C6FE0]">
+                        {formatNaira(prod.price)}
+                      </p>
+                    </div>
+                    <button
+                      id={`add-mini-item-${prod.id}`}
+                      onClick={() => onAddToCart(prod)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#7C6FE0]/15 text-[#7C6FE0] hover:bg-[#7C6FE0] hover:text-white transition cursor-pointer"
+                      title="Quick add to cart"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-
-          {/* Recently Viewed */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#475569] dark:text-[#94A3B8] mb-2">
-              Recently Viewed
-            </h4>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {RECENTLY_VIEWED.map((item) => (
-                <div
-                  key={item.id}
-                  className="group relative flex-shrink-0 cursor-pointer"
-                  title={`${item.name} - $${item.price}`}
-                >
-                  <img
-                    src={item.image}
-                    alt={item.name}
-                    referrerPolicy="no-referrer"
-                    className="h-12 w-12 rounded-full object-cover border-2 border-white dark:border-[#27272A] ring-1 ring-[#CBD5E1] dark:ring-[#333] transition group-hover:scale-105"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
 
           {/* Join BlazeStore Club Card */}
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#A78BFA] to-[#7C6FE0] p-4 text-white shadow-md">

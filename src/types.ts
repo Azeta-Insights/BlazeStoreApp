@@ -4,6 +4,8 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  brand?: string;
+  collection?: string;
   price: number;
   originalPrice?: number;
   costPrice?: number;
@@ -13,6 +15,9 @@ export interface Product {
   image: string;
   badge?: string;
   isHot?: boolean;
+  isDeal?: boolean;
+  isBestSeller?: boolean;
+  isNewArrival?: boolean;
   colors?: string[];
   selectedColor?: string;
   variant?: string;
@@ -43,6 +48,7 @@ export interface Category {
   itemCount: number;
   colorBg: string;
   colorIcon: string;
+  image?: string;
 }
 
 export interface PromoBanner {

@@ -7,7 +7,7 @@ export const HERO_SLIDES: PromoBanner[] = [
     id: 'banner-1',
     tag: 'New Season 2026',
     title: 'Find Your Style, Love Your Look',
-    subtitle: 'Explore 2,500+ curated luxury & everyday items designed for effortless elegance and comfort.',
+    subtitle: 'Explore curated luxury & everyday collections designed for effortless elegance and comfort.',
     buttonText: 'Shop Now',
     image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=700&auto=format&fit=crop&q=80',
     gradient: 'from-[#8B5CF6] via-[#7C6FE0] to-[#6366F1]',

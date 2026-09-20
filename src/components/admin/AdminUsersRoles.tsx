@@ -14,10 +14,13 @@ import {
   CheckCircle2,
   Crown,
   Trash2,
-  X
+  X,
+  Copy,
+  Check
 } from 'lucide-react';
 import { User, AdminRole } from '../../types';
 import { api } from '../../services/api';
+import { saveFirestoreDoc } from '../../services/firestoreService';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 
 interface AdminUsersRolesProps {
@@ -38,6 +41,14 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copyText = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    onShowToast(`📋 Copied "${text}" to clipboard`);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
 
   const [staffForm, setStaffForm] = useState({
     name: '',
@@ -119,7 +130,17 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
         roleType: staffForm.roleType,
       });
 
-      onShowToast(`🎉 Staff account created for ${staffForm.name}!`);
+      // Also persist to Firestore if available
+      try {
+        await saveFirestoreDoc('users', res.user.id, {
+          ...res.user,
+          password: staffForm.password || 'Staff123!',
+        });
+      } catch (fbErr) {
+        console.warn('Firestore doc sync optional notice:', fbErr);
+      }
+
+      onShowToast(`🎉 Staff account created for ${staffForm.name} (${staffForm.roleType === 'owner' ? 'Store Owner' : 'Store Manager'})!`);
       setIsAddStaffModalOpen(false);
       setStaffForm({
         name: '',
@@ -152,9 +173,9 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight">Admin & Customer Roles</h2>
+            <h2 className="text-xl font-black tracking-tight">Admin &amp; Customer Roles</h2>
             <span className="rounded-full bg-[#10B981]/15 px-2.5 py-0.5 text-xs font-bold text-[#10B981]">
-              Firestore Users
+              Active Users
             </span>
           </div>
           <p className="text-xs text-[#8A8A94] mt-0.5">
@@ -180,6 +201,135 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
             <Plus className="h-4 w-4" />
             <span>Create Admin / Staff</span>
           </button>
+        </div>
+      </div>
+
+      {/* Admin Dashboard Access Credentials Card */}
+      <div
+        className={`rounded-2xl p-5 border ${
+          isDarkMode
+            ? 'bg-gradient-to-r from-amber-500/5 via-[#7C6FE0]/5 to-transparent border-[#27272A]'
+            : 'bg-gradient-to-r from-amber-500/5 via-[#7C6FE0]/5 to-white border-[#EDEDF2] shadow-xs'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#7C6FE0]/15 text-[#7C6FE0]">
+                <Key className="h-4 w-4" />
+              </span>
+              <h3 className="font-extrabold text-sm text-[#0F172A] dark:text-white">
+                Admin Dashboard Access Credentials
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+                Active &amp; Ready
+              </span>
+            </div>
+            <p className="text-xs text-[#64748B] dark:text-[#94A3B8] mt-1">
+              Use these credentials to sign in to the Store Owner (Root Super Admin) or Store Manager (Operations) dashboards, or create new staff accounts below.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAddStaffModalOpen(true)}
+            className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#A78BFA] to-[#7C6FE0] text-xs font-bold text-white shadow-xs hover:opacity-95 transition cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add New Staff Account</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {/* Store Owner Credential Card */}
+          <div
+            className={`rounded-xl p-3.5 border transition ${
+              isDarkMode
+                ? 'bg-[#18181B] border-amber-500/30'
+                : 'bg-white border-amber-500/30 shadow-xs'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="flex items-center gap-1.5 text-xs font-black text-amber-500">
+                <Crown className="h-4 w-4" /> Store Owner Dashboard
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                Root Super Admin
+              </span>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[#F8FAFC] dark:bg-[#202024]">
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Email Login</div>
+                  <div className="font-mono font-bold text-[#0F172A] dark:text-white select-all">owner@blazestore.com</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyText('owner@blazestore.com', 'owner-email')}
+                  className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-500 hover:text-amber-500 transition cursor-pointer"
+                  title="Copy email"
+                >
+                  {copiedKey === 'owner-email' ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[#F8FAFC] dark:bg-[#202024]">
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Password Security</div>
+                  <div className="font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400 select-all">•••••••• (Bcrypt / ENV)</div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-slate-500 flex items-center justify-between">
+              <span>Also linked: <span className="font-mono text-slate-600 dark:text-slate-400">azetablessingb@gmail.com</span></span>
+              <span className="text-amber-500/80 font-medium">All Root Privileges</span>
+            </div>
+          </div>
+
+          {/* Store Manager Credential Card */}
+          <div
+            className={`rounded-xl p-3.5 border transition ${
+              isDarkMode
+                ? 'bg-[#18181B] border-[#7C6FE0]/30'
+                : 'bg-white border-[#7C6FE0]/30 shadow-xs'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="flex items-center gap-1.5 text-xs font-black text-[#7C6FE0] dark:text-[#A78BFA]">
+                <ShieldCheck className="h-4 w-4" /> Store Manager Dashboard
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#7C6FE0]/15 text-[#7C6FE0] dark:text-[#C4B5FD]">
+                Operations Lead
+              </span>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[#F8FAFC] dark:bg-[#202024]">
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Email Login</div>
+                  <div className="font-mono font-bold text-[#0F172A] dark:text-white select-all">manager@blazestore.com</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyText('manager@blazestore.com', 'manager-email')}
+                  className="p-1.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-500 hover:text-[#7C6FE0] transition cursor-pointer"
+                  title="Copy email"
+                >
+                  {copiedKey === 'manager-email' ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[#F8FAFC] dark:bg-[#202024]">
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Password Security</div>
+                  <div className="font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400 select-all">•••••••• (Bcrypt / ENV)</div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-slate-500 flex items-center justify-between">
+              <span>Also linked: <span className="font-mono text-slate-600 dark:text-slate-400">blessing.waydiva@gmail.com</span></span>
+              <span className="text-[#7C6FE0] font-medium">Orders &amp; Stock Operations</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -253,7 +403,7 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
             </span>
           </div>
           <p className="text-[11px] text-[#8A8A94] mt-2.5">
-            Storefront customers saved to Firestore upon registration with saved cart, wishlist, and order history.
+            Storefront customers saved upon registration with cart, wishlist, and order history.
           </p>
         </div>
       </div>
@@ -376,7 +526,7 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
                           <button
                             onClick={() => handleDeleteUser(u.id, u.name)}
                             className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition"
-                            title="Delete User from Firestore"
+                            title="Delete User"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -498,7 +648,7 @@ export const AdminUsersRoles: React.FC<AdminUsersRolesProps> = ({
                   disabled={isSubmitting}
                   className="flex items-center gap-1.5 rounded-xl bg-[#7C6FE0] px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#6D60D6] disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Creating in Firestore...' : 'Create Account'}
+                  {isSubmitting ? 'Creating Account...' : 'Create Account'}
                 </button>
               </div>
             </form>

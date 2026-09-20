@@ -1,28 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Database,
   CheckCircle2,
-  AlertCircle,
   RefreshCw,
-  Server,
   Zap,
-  Layers,
   ChevronDown,
   ChevronUp,
-  ShieldCheck,
   Flame,
   KeyRound
 } from 'lucide-react';
 import { DbStatus } from '../services/api';
 import { pingFirestore, getFirestoreStats } from '../services/firestoreService';
 
-interface MongoStatusBannerProps {
-  status: DbStatus | null;
-  onRefresh: (force?: boolean) => Promise<void>;
+interface FirestoreStatusBannerProps {
+  status?: DbStatus | null;
+  onRefresh?: (force?: boolean) => Promise<void>;
   isDarkMode: boolean;
 }
 
-export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
+export const FirestoreStatusBanner: React.FC<FirestoreStatusBannerProps> = ({
   status,
   onRefresh,
   isDarkMode,
@@ -53,7 +48,9 @@ export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
       if (stats) {
         setFirestoreCounts(stats);
       }
-      await onRefresh(true);
+      if (onRefresh) {
+        await onRefresh(true);
+      }
     } catch (e) {
       console.warn('Firestore ping warning:', e);
     } finally {
@@ -86,7 +83,7 @@ export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-extrabold bg-[#10B981]/15 text-[#047857] dark:text-[#34D399]">
                 <span className="h-2 w-2 rounded-full bg-[#10B981] animate-pulse" />
-                Google Cloud Firestore Connected
+                Store Cloud Connected
               </span>
 
               <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-[#6366F1]/15 text-[#4F46E5] dark:text-[#818CF8]">
@@ -97,18 +94,18 @@ export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
               {firestorePing !== null && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#059669] dark:text-[#34D399]">
                   <Zap className="h-3 w-3" />
-                  {firestorePing}ms ping
+                  Fast Response ({firestorePing}ms)
                 </span>
               )}
             </div>
 
             <p className="text-xs text-[#52525B] dark:text-[#A1A1AA] mt-0.5">
-              Project:{' '}
+              Database:{' '}
               <strong className="text-[#1F1F23] dark:text-white font-mono text-[11px]">
-                blazestoreapp
+                Google Cloud Firestore
               </strong>{' '}
               <span className="text-[#059669] dark:text-[#34D399] font-medium">
-                (Firestore default database • Live)
+                (blazestoreapp • Live)
               </span>
             </p>
           </div>
@@ -121,10 +118,10 @@ export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
             onClick={runFirestorePing}
             disabled={isRefreshing}
             className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-xs bg-white dark:bg-[#1E293B] text-[#047857] dark:text-[#34D399] border border-[#BBF7D0] dark:border-[#334155] hover:bg-[#F0FDF4] cursor-pointer"
-            title="Test real-time connection and ping Firestore"
+            title="Check live Firestore connection"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>{isRefreshing ? 'Pinging...' : 'Ping Firestore'}</span>
+            <span>{isRefreshing ? 'Checking...' : 'Check Connection'}</span>
           </button>
 
           <button
@@ -143,39 +140,39 @@ export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
         <div className="border-t border-black/5 dark:border-white/10 p-3.5 sm:p-4 bg-white/50 dark:bg-black/20 text-xs space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded-xl p-2.5 bg-white dark:bg-[#1F1F23] border border-[#EDEDF2] dark:border-[#333]">
-              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Firestore Project</span>
+              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Database Provider</span>
               <span className="font-extrabold text-xs text-[#10B981] flex items-center gap-1 mt-0.5">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                blazestoreapp
+                Cloud Firestore
               </span>
             </div>
 
             <div className="rounded-xl p-2.5 bg-white dark:bg-[#1F1F23] border border-[#EDEDF2] dark:border-[#333]">
-              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Products in Firestore</span>
+              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Catalog Products</span>
               <span className="font-extrabold text-sm text-[#1F1F23] dark:text-white mt-0.5 block">
                 {firestoreCounts.products} items
               </span>
             </div>
 
             <div className="rounded-xl p-2.5 bg-white dark:bg-[#1F1F23] border border-[#EDEDF2] dark:border-[#333]">
-              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Orders Collection</span>
+              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Active Orders</span>
               <span className="font-extrabold text-sm text-[#7C6FE0] mt-0.5 block">
-                {firestoreCounts.orders} live orders
+                {firestoreCounts.orders} orders
               </span>
             </div>
 
             <div className="rounded-xl p-2.5 bg-white dark:bg-[#1F1F23] border border-[#EDEDF2] dark:border-[#333]">
-              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Auth &amp; Users</span>
+              <span className="text-[#8A8A94] text-[10px] uppercase font-bold block">Staff &amp; Accounts</span>
               <span className="font-extrabold text-sm text-[#10B981] mt-0.5 block">
-                {firestoreCounts.users} profiles sync
+                {firestoreCounts.users} accounts
               </span>
             </div>
           </div>
 
           <div className="rounded-xl p-3 bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-200">
-            <strong className="font-bold block mb-1">Firestore Connection Info:</strong>
+            <strong className="font-bold block mb-1">Cloud Firestore Connection Info:</strong>
             <p className="text-[11px] opacity-90">
-              The application connects directly to your Google Cloud Firestore project (<code className="font-mono font-bold">blazestoreapp</code>) with real-time snapshot listeners for products, carts, wishlists, and orders.
+              The store connects directly to Google Cloud Firestore with real-time sync for catalog items, customer orders, and staff roles.
             </p>
           </div>
         </div>
@@ -183,3 +180,5 @@ export const MongoStatusBanner: React.FC<MongoStatusBannerProps> = ({
     </div>
   );
 };
+
+export default FirestoreStatusBanner;

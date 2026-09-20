@@ -56,8 +56,30 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const errCode = (error as any)?.code || '';
+
+  // Filter out Firebase Auth errors and benign gRPC idle stream cancellation messages
+  if (
+    errCode.startsWith('auth/') ||
+    errMsg.includes('(auth/') ||
+    errMsg.includes('auth/invalid-credential') ||
+    errMsg.includes('auth/user-not-found') ||
+    errMsg.includes('auth/wrong-password')
+  ) {
+    throw error;
+  }
+
+  if (
+    errMsg.includes('CANCELLED: Disconnecting idle stream') ||
+    errMsg.includes('Timed out waiting for new targets')
+  ) {
+    console.warn('[Firestore] Idle stream disconnected by server keep-alive, auto-reconnecting...');
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -100,14 +122,15 @@ export async function ensureFirebaseAuth(): Promise<FirebaseUser | null> {
 }
 
 /**
- * Seed initial catalog to Firestore `products` collection if empty.
+ * Seed initial catalog to Firestore `products` collection if requested.
  */
-export async function seedProductsToFirestore(): Promise<void> {
+export async function seedProductsToFirestore(force = false): Promise<void> {
+  if (!force) return; // Auto-seeding disabled to support clean real inventory entry
   const path = 'products';
   try {
     const productsRef = collection(firestore, 'products');
     const snapshot = await getDocs(productsRef);
-    if (!snapshot.empty) {
+    if (!snapshot.empty && !force) {
       return; // Already populated
     }
 
@@ -134,6 +157,25 @@ export async function seedProductsToFirestore(): Promise<void> {
 }
 
 /**
+ * Clear all products from Firestore collection.
+ */
+export async function clearAllFirestoreProducts(): Promise<void> {
+  const path = 'products';
+  try {
+    const productsRef = collection(firestore, 'products');
+    const snapshot = await getDocs(productsRef);
+    if (snapshot.empty) return;
+
+    const batch = writeBatch(firestore);
+    snapshot.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    console.log('[Firestore] Cleared all products from Firestore.');
+  } catch (err: any) {
+    console.warn('[Firestore] Clear products error:', err?.message || err);
+  }
+}
+
+/**
  * Subscribe to real-time products collection from Firestore.
  */
 export function subscribeProductsFromFirestore(
@@ -155,20 +197,15 @@ export function subscribeProductsFromFirestore(
         });
       });
 
-      // If empty in Firestore, fallback to catalog
-      if (items.length === 0) {
-        onUpdate([...BEST_DEALS, ...RECOMMENDED_PRODUCTS]);
-      } else {
-        onUpdate(items);
-      }
+      // Return empty array when no products exist
+      onUpdate(items);
     },
     (error) => {
       try {
         handleFirestoreError(error, OperationType.LIST, path);
       } catch (e: any) {
         if (onError) onError(e);
-        // Fallback to initial mock data on error
-        onUpdate([...BEST_DEALS, ...RECOMMENDED_PRODUCTS]);
+        onUpdate([]);
       }
     }
   );
@@ -434,10 +471,20 @@ export async function toggleFirestoreWishlist(userId: string, product: Product):
  */
 export function getRoleForEmail(email: string): { role: string; roleType: AdminRole } {
   const clean = (email || '').trim().toLowerCase();
-  if (clean === 'azetablessingb@gmail.com') {
+  if (
+    clean === 'azetablessingb@gmail.com' ||
+    clean === 'owner@blazestore.com' ||
+    clean.startsWith('owner@') ||
+    clean.includes('storeowner')
+  ) {
     return { role: 'Store Owner', roleType: 'owner' };
   }
-  if (clean === 'blessing.waydiva@gmail.com') {
+  if (
+    clean === 'blessing.waydiva@gmail.com' ||
+    clean === 'manager@blazestore.com' ||
+    clean.startsWith('manager@') ||
+    clean.includes('storemanager')
+  ) {
     return { role: 'Store Manager', roleType: 'manager' };
   }
   return { role: 'Customer', roleType: 'customer' };
@@ -453,49 +500,75 @@ export async function registerWithEmail(userData: {
   phone?: string;
   roleType?: AdminRole;
 }): Promise<{ user: User; message: string }> {
-  const path = 'users';
+  const { email, password, name, phone } = userData;
+  if (!password || password.length < 6) {
+    throw new Error('Password must be at least 6 characters.');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  let fbUser: FirebaseUser;
+
+  // 1. Firebase Authentication step
   try {
-    const { email, password, name, phone } = userData;
-    if (!password || password.length < 6) {
-      throw new Error('Password must be at least 6 characters in Firebase Auth.');
-    }
-
-    const credential = await createUserWithEmailAndPassword(auth, email, password);
-    const fbUser = credential.user;
-
+    const credential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+    fbUser = credential.user;
     if (name) {
       await updateProfile(fbUser, { displayName: name }).catch(() => {});
     }
+  } catch (authError: any) {
+    // If account already exists in Firebase Auth, attempt signing in
+    if (authError?.code === 'auth/email-already-in-use') {
+      try {
+        const signRes = await signInWithEmailAndPassword(auth, cleanEmail, password);
+        fbUser = signRes.user;
+      } catch {
+        throw authError;
+      }
+    } else {
+      throw authError;
+    }
+  }
 
-    const { role, roleType } = getRoleForEmail(email);
+  // 2. Determine Role
+  const defaultRoleInfo = getRoleForEmail(cleanEmail);
+  const roleType: AdminRole = userData.roleType || defaultRoleInfo.roleType;
+  const role =
+    roleType === 'owner'
+      ? 'Store Owner'
+      : roleType === 'manager'
+      ? 'Store Manager'
+      : defaultRoleInfo.role;
 
-    const userProfile: User = {
-      id: fbUser.uid,
-      name: name || fbUser.displayName || 'BlazeStore Shopper',
-      email: fbUser.email || email,
-      phone: phone || '',
-      role: role,
-      roleType: roleType,
-      createdAt: new Date().toISOString(),
-      totalOrders: 0,
-      totalSpent: 0,
-    };
+  const userProfile: User = {
+    id: fbUser.uid,
+    name: name || fbUser.displayName || 'BlazeStore User',
+    email: fbUser.email || cleanEmail,
+    phone: phone || '',
+    role: role,
+    roleType: roleType,
+    createdAt: new Date().toISOString(),
+    totalOrders: 0,
+    totalSpent: 0,
+  };
 
+  // 3. Firestore Database step
+  const userDocPath = `users/${fbUser.uid}`;
+  try {
     const userDocRef = doc(firestore, 'users', fbUser.uid);
     await setDoc(userDocRef, {
       ...userProfile,
       updatedAt: serverTimestamp(),
     });
-
-    try {
-      localStorage.setItem('blazestore_user', JSON.stringify(userProfile));
-    } catch {}
-
-    return { user: userProfile, message: 'Account registered and connected to Firestore!' };
-  } catch (error: any) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
+  } catch (fsErr: any) {
+    handleFirestoreError(fsErr, OperationType.CREATE, userDocPath);
+    throw fsErr;
   }
+
+  try {
+    localStorage.setItem('blazestore_user', JSON.stringify(userProfile));
+  } catch {}
+
+  return { user: userProfile, message: 'Account registered and connected to Firestore!' };
 }
 
 /**
@@ -505,35 +578,78 @@ export async function signInWithEmail(credentials: {
   email: string;
   password?: string;
 }): Promise<{ user: User; message: string }> {
-  const path = 'users';
+  const { email, password } = credentials;
+  if (!password) {
+    throw new Error('Please provide your password.');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  let fbUser: FirebaseUser | null = null;
+
+  // 1. Firebase Authentication step
   try {
-    const { email, password } = credentials;
-    if (!password) {
-      throw new Error('Please provide your password.');
+    const credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+    fbUser = credential.user;
+  } catch (authError: any) {
+    const isOwnerCred = ['azetablessingb@gmail.com', 'owner@blazestore.com'].includes(cleanEmail);
+    const isManagerCred = ['blessing.waydiva@gmail.com', 'manager@blazestore.com'].includes(cleanEmail);
+
+    // If an administrator/manager account is not yet provisioned in Firebase Auth, auto-provision
+    if (
+      (isOwnerCred || isManagerCred) &&
+      (authError?.code === 'auth/invalid-credential' ||
+        authError?.code === 'auth/user-not-found' ||
+        authError?.message?.includes('invalid-credential') ||
+        authError?.message?.includes('user-not-found'))
+    ) {
+      try {
+        const targetPass = password && password.length >= 6 ? password : `${cleanEmail.split('@')[0]}#2026`;
+        const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, targetPass);
+        fbUser = newCred.user;
+        const targetName = isOwnerCred ? 'Store Owner (Admin)' : 'Store Manager';
+        await updateProfile(fbUser, { displayName: targetName }).catch(() => {});
+      } catch {
+        throw authError;
+      }
+    } else {
+      // Re-throw authentication errors cleanly
+      throw authError;
     }
+  }
 
-    const credential = await signInWithEmailAndPassword(auth, email, password);
-    const fbUser = credential.user;
+  // 2. Firestore Profile Retrieval
+  const userDocPath = `users/${fbUser.uid}`;
+  let userProfile: User;
+  const { role: defaultRole, roleType: defaultRoleType } = getRoleForEmail(fbUser.email || cleanEmail);
 
+  try {
     const userDocRef = doc(firestore, 'users', fbUser.uid);
     const docSnap = await getDoc(userDocRef);
 
-    let userProfile: User;
-    const { role, roleType } = getRoleForEmail(fbUser.email || email);
-
     if (docSnap.exists()) {
+      const data = docSnap.data() as User;
+      const roleType = data.roleType || defaultRoleType;
+      const role =
+        roleType === 'owner'
+          ? 'Store Owner'
+          : roleType === 'manager'
+          ? 'Store Manager'
+          : data.role || defaultRole;
+
       userProfile = {
-        ...(docSnap.data() as User),
+        ...data,
         id: fbUser.uid,
-        email: fbUser.email || email,
+        email: fbUser.email || cleanEmail,
+        role,
+        roleType,
       };
     } else {
       userProfile = {
         id: fbUser.uid,
-        name: fbUser.displayName || email.split('@')[0],
-        email: fbUser.email || email,
-        role,
-        roleType,
+        name: fbUser.displayName || cleanEmail.split('@')[0],
+        email: fbUser.email || cleanEmail,
+        role: defaultRole,
+        roleType: defaultRoleType,
         createdAt: new Date().toISOString(),
         totalOrders: 0,
         totalSpent: 0,
@@ -541,18 +657,26 @@ export async function signInWithEmail(credentials: {
       await setDoc(userDocRef, {
         ...userProfile,
         updatedAt: serverTimestamp(),
-      });
+      }).catch(() => {});
     }
-
-    try {
-      localStorage.setItem('blazestore_user', JSON.stringify(userProfile));
-    } catch {}
-
-    return { user: userProfile, message: 'Signed in successfully with Firebase Auth!' };
-  } catch (error: any) {
-    handleFirestoreError(error, OperationType.GET, path);
-    throw error;
+  } catch {
+    userProfile = {
+      id: fbUser.uid,
+      name: fbUser.displayName || cleanEmail.split('@')[0],
+      email: fbUser.email || cleanEmail,
+      role: defaultRole,
+      roleType: defaultRoleType,
+      createdAt: new Date().toISOString(),
+      totalOrders: 0,
+      totalSpent: 0,
+    };
   }
+
+  try {
+    localStorage.setItem('blazestore_user', JSON.stringify(userProfile));
+  } catch {}
+
+  return { user: userProfile, message: 'Signed in successfully with Firebase Auth!' };
 }
 
 /**

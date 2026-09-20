@@ -282,10 +282,10 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 {/* Database Pill */}
                 <div className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Cloud Firestore: Connected</span>
+                  <span>Cloud Database: Connected</span>
                 </div>
 
-                {/* Cloudinary CDN Pill */}
+                {/* Media Storage Pill */}
                 <button
                   onClick={() => setActiveTab('database')}
                   className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-semibold transition ${
@@ -293,7 +293,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       ? 'bg-[#00A4EF]/10 border-[#00A4EF]/25 text-[#0077B5] dark:text-[#38BDF8] hover:bg-[#00A4EF]/20'
                       : 'bg-amber-500/10 border-amber-500/25 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20'
                   }`}
-                  title="Click to view Cloud Firestore & Cloudinary Hub"
+                  title="Click to view Database & Media Hub"
                 >
                   <UploadCloud className="h-3 w-3" />
                   <span className="flex items-center gap-1">
@@ -304,8 +304,8 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     />
                     <span>
                       {cloudinaryStatus?.configured
-                        ? `Cloudinary CDN: Connected (${cloudinaryStatus.cloudName || 'Active'})`
-                        : 'Cloudinary: Direct Upload Mode'}
+                        ? `Media Storage: Connected (${cloudinaryStatus.cloudName || 'Active'})`
+                        : 'Media Storage: Active'}
                     </span>
                   </span>
                   <ChevronRight className="h-3 w-3 opacity-60" />
@@ -394,7 +394,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             }`}
           >
             <Database className="h-4 w-4" />
-            <span>Cloud Firestore &amp; Cloudinary Hub</span>
+            <span>Database &amp; Storage Hub</span>
             <span
               className={`h-2 w-2 rounded-full shrink-0 ${
                 cloudinaryStatus?.configured ? 'bg-[#00A4EF]' : 'bg-amber-400'

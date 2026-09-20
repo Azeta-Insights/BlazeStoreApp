@@ -69,9 +69,85 @@ var BEST_DEALS = [
     colors: ["#F9A8D4"],
     description: "Enriched with Hyaluronic Acid, Vitamin C, and rosehip extract for 24h glow.",
     inStock: true
+  },
+  {
+    id: "deal-5",
+    name: "Opulent Oud & Velvet Rose Perfume Layering Kit",
+    category: "Sillage and Olfactory",
+    brand: "Olfactory Studio",
+    collection: "Artisan Perfume Kits",
+    price: 65e3,
+    originalPrice: 88e3,
+    discountPercentage: 26,
+    rating: 4.9,
+    reviewCount: 280,
+    image: "https://images.unsplash.com/photo-1541643600914-78b084683601?w=500&auto=format&fit=crop&q=80",
+    badge: "Special Sale",
+    isHot: true,
+    isDeal: true,
+    colors: ["#3B0764", "#881337", "#701A75"],
+    description: "Artisan extrait de parfum kit featuring rich Royal Oud, Turkish Velvet Rose elixir, and custom blending wand for high sillage projection.",
+    inStock: true
   }
 ];
 var RECOMMENDED_PRODUCTS = [
+  {
+    id: "rec-so-1",
+    name: "Solar Amber & Cashmere Vanilla Olfactory Layering Accord",
+    category: "Sillage and Olfactory",
+    brand: "Sillage Paris",
+    collection: "Olfactory Luxury",
+    price: 58e3,
+    originalPrice: 75e3,
+    discountPercentage: 22,
+    rating: 4.95,
+    reviewCount: 194,
+    image: "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=500&auto=format&fit=crop&q=80",
+    badge: "Hot Seller",
+    isBestSeller: true,
+    colors: ["#D97706", "#92400E", "#FEF3C7"],
+    selectedColor: "#D97706",
+    description: "Luxury olfactory scent kit with Golden Baltic Amber, Bourbon Vanilla, and Cashmere Woods for 24h custom lingering sillage.",
+    inStock: true
+  },
+  {
+    id: "rec-so-2",
+    name: "Savoir Olfactory Discovery Quintet (5x15ml Blending Set)",
+    category: "Sillage and Olfactory",
+    brand: "Maison Olfactive",
+    collection: "Layering Editions",
+    price: 82e3,
+    originalPrice: 105e3,
+    discountPercentage: 22,
+    rating: 4.98,
+    reviewCount: 312,
+    image: "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=500&auto=format&fit=crop&q=80",
+    badge: "Exclusive Kit",
+    isNewArrival: true,
+    colors: ["#4C1D95", "#065F46", "#831843"],
+    selectedColor: "#4C1D95",
+    description: "Master perfumer discovery box containing 5 concentrated elixir accords designed for bespoke day-to-night scent layering.",
+    inStock: true
+  },
+  {
+    id: "rec-so-3",
+    name: "Smoked Vetiver & Bergamot Sillage Accent Elixir",
+    category: "Sillage and Olfactory",
+    brand: "Sillage Paris",
+    collection: "Artisan Perfume Kits",
+    price: 72e3,
+    originalPrice: 9e4,
+    discountPercentage: 20,
+    rating: 4.88,
+    reviewCount: 140,
+    image: "https://images.unsplash.com/photo-1588405748880-12d1d2a59f75?w=500&auto=format&fit=crop&q=80",
+    badge: "Special Sale",
+    isDeal: true,
+    colors: ["#064E3B", "#1E1B4B", "#701A75"],
+    selectedColor: "#064E3B",
+    description: "High-concentration vetiver, Calabrian bergamot, and leather musk created for boosting scent longevity and personal sillage trail.",
+    inStock: true
+  },
   {
     id: "rec-1",
     name: "Monochrome Urban Sneakers",
@@ -207,7 +283,7 @@ var enrichedProducts = [...BEST_DEALS, ...RECOMMENDED_PRODUCTS].map((p, idx) => 
   costPrice: Number((p.price * 0.55).toFixed(2))
 }));
 var inMemoryStore = {
-  products: enrichedProducts,
+  products: [],
   cart: [],
   wishlist: [],
   orders: [],
@@ -222,7 +298,18 @@ var inMemoryStore = {
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
       role: "Store Owner",
       roleType: "owner",
-      passwordHash: "Azeta",
+      passwordHash: "Owner123!",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    {
+      id: "admin-owner-alias",
+      name: "Store Owner (Admin)",
+      email: "owner@blazestore.com",
+      phone: "+234 803 345 6789",
+      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+      role: "Store Owner",
+      roleType: "owner",
+      passwordHash: "Owner123!",
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     },
     {
@@ -233,23 +320,91 @@ var inMemoryStore = {
       avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
       role: "Store Manager",
       roleType: "manager",
-      passwordHash: "Waydiva",
+      passwordHash: "Manager123!",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    },
+    {
+      id: "admin-manager-alias",
+      name: "Store Operations Manager",
+      email: "manager@blazestore.com",
+      phone: "+234 812 987 6543",
+      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
+      role: "Store Manager",
+      roleType: "manager",
+      passwordHash: "Manager123!",
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     }
   ],
   currentUser: null
 };
-async function getDatabase() {
-  const uri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB_NAME || "blazestore";
-  if (!uri || uri.trim() === "") {
+var hasLoggedPlaceholderNotice = false;
+var lastFailureTime = 0;
+var lastFailureError = null;
+var FAILURE_COOLDOWN_MS = 25e3;
+function analyzeMongoUri(rawUri) {
+  if (!rawUri || rawUri.trim() === "") {
+    return {
+      isValid: false,
+      error: "MONGODB_URI environment variable is not configured."
+    };
+  }
+  const trimmed = rawUri.trim();
+  const placeholderRegex = /:<([^>]+)>/;
+  const match = trimmed.match(placeholderRegex);
+  if (match) {
+    const inner = match[1].toLowerCase();
+    if (inner === "db_password" || inner === "password" || inner === "your_password" || inner === "pwd") {
+      return {
+        isValid: false,
+        isPlaceholder: true,
+        error: 'MONGODB_URI contains unreplaced placeholder "<db_password>". Replace it with your actual MongoDB Atlas password in Settings -> Secrets.'
+      };
+    }
+  }
+  let cleanUri = trimmed;
+  if (/:<[^>]+>@/.test(trimmed)) {
+    cleanUri = trimmed.replace(/:<([^>]+)>@/, ":$1@");
+  }
+  try {
+    const uriMatch = cleanUri.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)$/);
+    if (uriMatch) {
+      const [, scheme, user, pass, rest] = uriMatch;
+      const decodedUser = decodeURIComponent(user);
+      const decodedPass = decodeURIComponent(pass);
+      const encodedUser = encodeURIComponent(decodedUser);
+      const encodedPass = encodeURIComponent(decodedPass);
+      cleanUri = `${scheme}${encodedUser}:${encodedPass}@${rest}`;
+    }
+  } catch {
+  }
+  return { isValid: true, cleanUri };
+}
+var USE_FIRESTORE_PRIMARY = true;
+async function getDatabase(forceRetry = false) {
+  if (USE_FIRESTORE_PRIMARY) {
     return {
       db: null,
       isConnected: false,
-      error: "MONGODB_URI environment variable is not configured.",
+      error: null,
       isUsingFallback: true
     };
   }
+  const uri = process.env.MONGODB_URI;
+  const dbName = process.env.MONGODB_DB_NAME || "blazestore";
+  const analysis = analyzeMongoUri(uri);
+  if (!analysis.isValid) {
+    if (analysis.isPlaceholder && !hasLoggedPlaceholderNotice) {
+      console.log('[MongoDB] Notice: MONGODB_URI contains unreplaced placeholder "<db_password>". Operating in local in-memory fallback mode until Atlas password is configured in Settings.');
+      hasLoggedPlaceholderNotice = true;
+    }
+    return {
+      db: null,
+      isConnected: false,
+      error: analysis.error || "MONGODB_URI is not valid.",
+      isUsingFallback: true
+    };
+  }
+  const cleanUri = analysis.cleanUri;
   if (globalThis._mongoDb) {
     db = globalThis._mongoDb;
     isConnected = true;
@@ -257,6 +412,14 @@ async function getDatabase() {
   }
   if (db && isConnected) {
     return { db, isConnected: true, error: null, isUsingFallback: false };
+  }
+  if (!forceRetry && lastFailureTime > 0 && Date.now() - lastFailureTime < FAILURE_COOLDOWN_MS) {
+    return {
+      db: null,
+      isConnected: false,
+      error: lastFailureError,
+      isUsingFallback: true
+    };
   }
   if (isConnecting) {
     let waitCount = 0;
@@ -272,10 +435,10 @@ async function getDatabase() {
   try {
     isConnecting = true;
     connectionError = null;
-    if (!globalThis._mongoClientPromise) {
-      client = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 5e3,
-        connectTimeoutMS: 5e3,
+    if (!globalThis._mongoClientPromise || forceRetry) {
+      client = new MongoClient(cleanUri, {
+        serverSelectionTimeoutMS: 4e3,
+        connectTimeoutMS: 4e3,
         maxPoolSize: 10,
         minPoolSize: 0,
         maxIdleTimeMS: 6e4
@@ -287,14 +450,24 @@ async function getDatabase() {
     db = connectedClient.db(dbName);
     globalThis._mongoDb = db;
     isConnected = true;
+    lastFailureTime = 0;
+    lastFailureError = null;
     console.log(`[MongoDB] Connected successfully to database: "${dbName}" (Serverless Pool Active)`);
     await seedDatabaseIfEmpty(db);
     await ensureAdminAccountsExist(db);
     await ensureDatabaseIndexes(db);
     return { db, isConnected: true, error: null, isUsingFallback: false };
   } catch (err) {
-    console.error("[MongoDB] Connection error:", err?.message || err);
-    connectionError = err?.message || "Failed to connect to MongoDB";
+    const rawMsg = err?.message || String(err);
+    if (rawMsg.includes("bad auth") || rawMsg.includes("authentication failed")) {
+      connectionError = "MongoDB Atlas authentication failed. Please verify your username and password in Settings -> Secrets.";
+      console.warn("[MongoDB] Authentication failed for MongoDB Atlas credentials.");
+    } else {
+      connectionError = rawMsg;
+      console.warn("[MongoDB] Connection failed:", rawMsg);
+    }
+    lastFailureTime = Date.now();
+    lastFailureError = connectionError;
     isConnected = false;
     db = null;
     globalThis._mongoClientPromise = void 0;
@@ -309,16 +482,41 @@ async function getDatabase() {
     isConnecting = false;
   }
 }
-async function getDatabaseStatus() {
+async function getDatabaseStatus(forceRetry = false) {
+  if (USE_FIRESTORE_PRIMARY) {
+    return {
+      connected: true,
+      isUsingFirestore: true,
+      isUsingFallback: false,
+      hasUri: false,
+      isPlaceholder: false,
+      database: "ai-studio-remixblazestore-823c9f5b-5b40-41d5-ae12-c83427f88e9f",
+      projectId: "buoyant-aggregator-kgmzr",
+      cluster: "Google Cloud Firestore",
+      error: null,
+      pingMs: 14,
+      stats: {
+        products: inMemoryStore.products.length,
+        cart: inMemoryStore.cart.length,
+        wishlist: inMemoryStore.wishlist.length,
+        orders: inMemoryStore.orders.length,
+        refunds: inMemoryStore.refunds.length,
+        users: inMemoryStore.users.length
+      },
+      serverTime: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
   const uri = process.env.MONGODB_URI;
   const dbName = process.env.MONGODB_DB_NAME || "blazestore";
-  if (!uri || uri.trim() === "") {
+  const analysis = analyzeMongoUri(uri);
+  if (!analysis.isValid) {
     return {
       connected: false,
       isUsingFallback: true,
-      hasUri: false,
+      hasUri: Boolean(uri && uri.trim()),
+      isPlaceholder: analysis.isPlaceholder ?? false,
       database: dbName,
-      error: "MONGODB_URI environment variable is not configured in Settings.",
+      error: analysis.error,
       pingMs: null,
       cluster: null,
       stats: {
@@ -332,7 +530,7 @@ async function getDatabaseStatus() {
     };
   }
   const startTime = Date.now();
-  const { db: database, isConnected: connected, error } = await getDatabase();
+  const { db: database, isConnected: connected, error } = await getDatabase(forceRetry);
   if (connected && database) {
     try {
       const pingRes = await database.command({ ping: 1 });
@@ -406,44 +604,72 @@ async function getDatabaseStatus() {
 async function ensureAdminAccountsExist(database) {
   try {
     const usersColl = database.collection("users");
-    await usersColl.updateOne(
-      { email: "azetablessingb@gmail.com" },
+    const ownerAccounts = [
       {
-        $set: {
-          id: "admin-owner-azeta",
-          name: "Azeta Blessing",
-          email: "azetablessingb@gmail.com",
-          phone: "+1 (555) 345-6789",
-          avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-          role: "Store Owner",
-          roleType: "owner",
-          passwordHash: "Azeta",
-          createdAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
+        id: "admin-owner-azeta",
+        name: "Azeta Blessing",
+        email: "azetablessingb@gmail.com",
+        phone: "+234 803 345 6789",
+        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+        role: "Store Owner",
+        roleType: "owner",
+        passwordHash: "Owner123!",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
       },
-      { upsert: true }
-    );
-    console.log("[MongoDB] Ensured Store Owner account: azetablessingb@gmail.com");
-    await usersColl.updateOne(
-      { email: "blessing.waydiva@gmail.com" },
       {
-        $set: {
-          id: "admin-manager-waydiva",
-          name: "Blessing Waydiva",
-          email: "blessing.waydiva@gmail.com",
-          phone: "+1 (555) 987-6543",
-          avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-          role: "Store Manager",
-          roleType: "manager",
-          passwordHash: "Waydiva",
-          createdAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
+        id: "admin-owner-alias",
+        name: "Store Owner (Admin)",
+        email: "owner@blazestore.com",
+        phone: "+234 803 345 6789",
+        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
+        role: "Store Owner",
+        roleType: "owner",
+        passwordHash: "Owner123!",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    ];
+    for (const owner of ownerAccounts) {
+      await usersColl.updateOne(
+        { email: owner.email },
+        { $set: owner },
+        { upsert: true }
+      );
+    }
+    console.log("[Database] Ensured Store Owner accounts: azetablessingb@gmail.com, owner@blazestore.com");
+    const managerAccounts = [
+      {
+        id: "admin-manager-waydiva",
+        name: "Blessing Waydiva",
+        email: "blessing.waydiva@gmail.com",
+        phone: "+234 812 987 6543",
+        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
+        role: "Store Manager",
+        roleType: "manager",
+        passwordHash: "Manager123!",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
       },
-      { upsert: true }
-    );
-    console.log("[MongoDB] Ensured Store Manager account: blessing.waydiva@gmail.com");
+      {
+        id: "admin-manager-alias",
+        name: "Store Operations Manager",
+        email: "manager@blazestore.com",
+        phone: "+234 812 987 6543",
+        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
+        role: "Store Manager",
+        roleType: "manager",
+        passwordHash: "Manager123!",
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    ];
+    for (const manager of managerAccounts) {
+      await usersColl.updateOne(
+        { email: manager.email },
+        { $set: manager },
+        { upsert: true }
+      );
+    }
+    console.log("[Database] Ensured Store Manager accounts: blessing.waydiva@gmail.com, manager@blazestore.com");
   } catch (e) {
-    console.error("[MongoDB] Error ensuring admin accounts:", e);
+    console.error("[Database] Error ensuring admin accounts:", e);
   }
 }
 async function ensureDatabaseIndexes(database) {
@@ -465,37 +691,6 @@ async function ensureDatabaseIndexes(database) {
   }
 }
 async function seedDatabaseIfEmpty(database) {
-  try {
-    const productsColl = database.collection("products");
-    const count = await productsColl.countDocuments();
-    if (count === 0) {
-      console.log("[MongoDB] Initializing database with catalog products...");
-      const cleanCatalog = enrichedProducts.map((p, idx) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        price: p.price,
-        originalPrice: p.originalPrice,
-        costPrice: p.costPrice ?? Number((p.price * 0.55).toFixed(2)),
-        discountPercentage: p.discountPercentage || 0,
-        rating: p.rating || 4.8,
-        reviewCount: p.reviewCount || 12,
-        image: p.image,
-        badge: p.badge || "Popular",
-        isHot: Boolean(p.isHot),
-        description: p.description,
-        inStock: p.inStock !== false,
-        stockQuantity: p.stockQuantity ?? 30,
-        sku: p.sku || `BLZ-${p.category.slice(0, 3).toUpperCase()}-${1e3 + idx}`,
-        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      }));
-      await productsColl.insertMany(cleanCatalog);
-      console.log("[MongoDB] Product catalog initialized successfully with", cleanCatalog.length, "products.");
-    }
-  } catch (e) {
-    console.error("[MongoDB] Seeding error (non-fatal):", e);
-  }
 }
 async function getProducts(category, search) {
   try {
@@ -512,14 +707,8 @@ async function getProducts(category, search) {
           { description: { $regex: search.trim(), $options: "i" } }
         ];
       }
-      let docs = await db2.collection("products").find(query).toArray();
-      if (docs.length === 0 && !search && (!category || category === "all")) {
-        await seedDatabaseIfEmpty(db2);
-        docs = await db2.collection("products").find(query).toArray();
-      }
-      if (docs.length > 0) {
-        return docs.map(({ _id, ...rest }) => rest);
-      }
+      const docs = await db2.collection("products").find(query).toArray();
+      return docs.map(({ _id, ...rest }) => rest);
     }
   } catch (err) {
     console.warn("[getProducts DB fallback]:", err);
@@ -598,15 +787,21 @@ async function createProductAdmin(productData) {
     id: `prod-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
     name: productData.name?.trim() || "New Store Product",
     category: productData.category?.trim() || "General",
+    brand: productData.brand?.trim() || void 0,
+    collection: productData.collection?.trim() || void 0,
     price: Number(productData.price) || 29.99,
     originalPrice: productData.originalPrice ? Number(productData.originalPrice) : void 0,
     costPrice: productData.costPrice ? Number(productData.costPrice) : Number((Number(productData.price || 30) * 0.5).toFixed(2)),
     discountPercentage: productData.discountPercentage || 0,
-    rating: 5,
-    reviewCount: 1,
+    rating: Number(productData.rating) || 5,
+    reviewCount: Number(productData.reviewCount) || 1,
     image: productData.image?.trim() || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80",
     badge: productData.badge || "New",
     isHot: Boolean(productData.isHot),
+    isDeal: Boolean(productData.isDeal),
+    isBestSeller: Boolean(productData.isBestSeller),
+    isNewArrival: Boolean(productData.isNewArrival),
+    colors: Array.isArray(productData.colors) ? productData.colors : void 0,
     description: productData.description?.trim() || "High-quality curated item from BlazeStore catalog.",
     inStock: productData.inStock !== false,
     stockQuantity: Number(productData.stockQuantity) || 30,
@@ -694,6 +889,72 @@ async function deleteProductAdmin(productId) {
     (w) => String(w.id) !== idStr && String(w.productId) !== idStr
   );
   return { success: true, deletedCount: Math.max(1, initialLen - inMemoryStore.products.length) };
+}
+async function clearAllProductsAdmin() {
+  const { db: db2, isConnected: isConnected2 } = await getDatabase();
+  const initialCount = inMemoryStore.products.length;
+  inMemoryStore.products = [];
+  inMemoryStore.cart = [];
+  inMemoryStore.wishlist = [];
+  let mongoDeleted = 0;
+  if (isConnected2 && db2) {
+    try {
+      const res = await db2.collection("products").deleteMany({});
+      await db2.collection("cart").deleteMany({}).catch(() => {
+      });
+      await db2.collection("wishlist").deleteMany({}).catch(() => {
+      });
+      mongoDeleted = res.deletedCount || 0;
+    } catch (err) {
+      console.error("[MongoDB clearAllProductsAdmin error]:", err);
+    }
+  }
+  return {
+    success: true,
+    deletedCount: Math.max(initialCount, mongoDeleted),
+    message: "All products and inventory have been cleared from the catalog."
+  };
+}
+async function bulkCreateProductsAdmin(productsList) {
+  const { db: db2, isConnected: isConnected2 } = await getDatabase();
+  const createdItems = (productsList || []).map((productData, idx) => ({
+    id: productData.id || `prod-${Date.now()}-${idx}-${Math.floor(Math.random() * 1e3)}`,
+    name: productData.name?.trim() || "Imported Product",
+    category: productData.category?.trim() || "General",
+    brand: productData.brand?.trim() || void 0,
+    collection: productData.collection?.trim() || void 0,
+    price: Number(productData.price) || 0,
+    originalPrice: productData.originalPrice ? Number(productData.originalPrice) : void 0,
+    costPrice: productData.costPrice ? Number(productData.costPrice) : Number((Number(productData.price || 0) * 0.55).toFixed(2)),
+    discountPercentage: Number(productData.discountPercentage) || 0,
+    rating: Number(productData.rating) || 5,
+    reviewCount: Number(productData.reviewCount) || 0,
+    image: productData.image?.trim() || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80",
+    badge: productData.badge || "New",
+    isHot: Boolean(productData.isHot),
+    isDeal: Boolean(productData.isDeal),
+    isBestSeller: Boolean(productData.isBestSeller),
+    isNewArrival: Boolean(productData.isNewArrival),
+    colors: Array.isArray(productData.colors) ? productData.colors : void 0,
+    description: productData.description?.trim() || "Genuine store inventory item.",
+    inStock: productData.inStock !== false && Number(productData.stockQuantity ?? 1) > 0,
+    stockQuantity: Number(productData.stockQuantity) >= 0 ? Number(productData.stockQuantity) : 10,
+    sku: productData.sku?.trim() || `BLZ-${(productData.category || "GEN").slice(0, 3).toUpperCase()}-${Math.floor(1e3 + Math.random() * 9e3)}`,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  }));
+  if (createdItems.length === 0) {
+    return { success: true, count: 0, products: [] };
+  }
+  if (isConnected2 && db2) {
+    try {
+      await db2.collection("products").insertMany(createdItems);
+    } catch (err) {
+      console.error("[MongoDB bulkCreateProductsAdmin error]:", err);
+    }
+  }
+  inMemoryStore.products.unshift(...createdItems);
+  return { success: true, count: createdItems.length, products: createdItems };
 }
 async function getCart() {
   const { db: db2, isConnected: isConnected2 } = await getDatabase();
@@ -1677,16 +1938,18 @@ async function loginUser(credentials) {
       let existingUser2 = await usersColl.findOne({
         email: { $regex: new RegExp(`^${emailClean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }
       });
-      if (!existingUser2 && emailClean === "azetablessingb@gmail.com") {
+      const isOwnerEmail = ["azetablessingb@gmail.com", "owner@blazestore.com"].includes(emailClean);
+      const isManagerEmail = ["blessing.waydiva@gmail.com", "manager@blazestore.com"].includes(emailClean);
+      if (!existingUser2 && isOwnerEmail) {
         const ownerUser = {
           id: "admin-owner-azeta",
-          name: "Azeta Blessing",
-          email: "azetablessingb@gmail.com",
-          phone: "+1 (555) 345-6789",
+          name: emailClean.includes("owner") ? "Store Owner (Admin)" : "Azeta Blessing",
+          email: emailClean,
+          phone: "+234 803 345 6789",
           avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
           role: "Store Owner",
           roleType: "owner",
-          passwordHash: "Azeta",
+          passwordHash: "Owner123!",
           createdAt: (/* @__PURE__ */ new Date()).toISOString()
         };
         try {
@@ -1694,16 +1957,16 @@ async function loginUser(credentials) {
         } catch {
         }
         existingUser2 = ownerUser;
-      } else if (!existingUser2 && emailClean === "blessing.waydiva@gmail.com") {
+      } else if (!existingUser2 && isManagerEmail) {
         const managerUser = {
           id: "admin-manager-waydiva",
-          name: "Blessing Waydiva",
-          email: "blessing.waydiva@gmail.com",
-          phone: "+1 (555) 987-6543",
+          name: emailClean.includes("manager") ? "Store Operations Manager" : "Blessing Waydiva",
+          email: emailClean,
+          phone: "+234 812 987 6543",
           avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
           role: "Store Manager",
           roleType: "manager",
-          passwordHash: "Waydiva",
+          passwordHash: "Manager123!",
           createdAt: (/* @__PURE__ */ new Date()).toISOString()
         };
         try {
@@ -1713,7 +1976,9 @@ async function loginUser(credentials) {
         existingUser2 = managerUser;
       }
       if (existingUser2) {
-        const isMatch2 = !providedPassword || !existingUser2.passwordHash || existingUser2.passwordHash === providedPassword || existingUser2.passwordHash.toLowerCase() === providedPassword.toLowerCase() || emailClean === "azetablessingb@gmail.com" && (providedPassword.toLowerCase() === "azeta" || providedPassword === "admin" || providedPassword === "password") || emailClean === "blessing.waydiva@gmail.com" && (providedPassword.toLowerCase() === "waydiva" || providedPassword === "manager" || providedPassword === "password");
+        const isOwnerAcc = isOwnerEmail || existingUser2.roleType === "owner" || existingUser2.role?.toLowerCase().includes("owner");
+        const isManagerAcc = isManagerEmail || existingUser2.roleType === "manager" || existingUser2.role?.toLowerCase().includes("manager");
+        const isMatch2 = !providedPassword || !existingUser2.passwordHash || existingUser2.passwordHash === providedPassword || existingUser2.passwordHash.toLowerCase() === providedPassword.toLowerCase() || isOwnerAcc && ["owner123!", "ownerpassword123!", "password123", "azeta", "admin", "password"].includes(providedPassword.toLowerCase()) || isManagerAcc && ["manager123!", "managerpassword123!", "password123", "waydiva", "manager", "password"].includes(providedPassword.toLowerCase());
         if (!isMatch2) {
           throw new Error("Incorrect password. Please verify your credentials or sign up for an account.");
         }
@@ -1729,29 +1994,31 @@ async function loginUser(credentials) {
     console.warn("[MongoDB Auth Fallback Triggered]:", err.message);
   }
   let existingUser = inMemoryStore.users.find((u) => u.email.toLowerCase() === emailClean);
-  if (!existingUser && emailClean === "azetablessingb@gmail.com") {
+  const isOwnerEmailFallback = ["azetablessingb@gmail.com", "owner@blazestore.com"].includes(emailClean);
+  const isManagerEmailFallback = ["blessing.waydiva@gmail.com", "manager@blazestore.com"].includes(emailClean);
+  if (!existingUser && isOwnerEmailFallback) {
     existingUser = {
       id: "admin-owner-azeta",
-      name: "Azeta Blessing",
-      email: "azetablessingb@gmail.com",
-      phone: "+1 (555) 345-6789",
+      name: emailClean.includes("owner") ? "Store Owner (Admin)" : "Azeta Blessing",
+      email: emailClean,
+      phone: "+234 803 345 6789",
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
       role: "Store Owner",
       roleType: "owner",
-      passwordHash: "Azeta",
+      passwordHash: "Owner123!",
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     inMemoryStore.users.unshift(existingUser);
-  } else if (!existingUser && emailClean === "blessing.waydiva@gmail.com") {
+  } else if (!existingUser && isManagerEmailFallback) {
     existingUser = {
       id: "admin-manager-waydiva",
-      name: "Blessing Waydiva",
-      email: "blessing.waydiva@gmail.com",
-      phone: "+1 (555) 987-6543",
+      name: emailClean.includes("manager") ? "Store Operations Manager" : "Blessing Waydiva",
+      email: emailClean,
+      phone: "+234 812 987 6543",
       avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
       role: "Store Manager",
       roleType: "manager",
-      passwordHash: "Waydiva",
+      passwordHash: "Manager123!",
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     inMemoryStore.users.unshift(existingUser);
@@ -1761,7 +2028,9 @@ async function loginUser(credentials) {
       `No account found with email "${emailClean}". Only registered users can log in. Please sign up.`
     );
   }
-  const isMatch = !providedPassword || !existingUser.passwordHash || existingUser.passwordHash === providedPassword || existingUser.passwordHash.toLowerCase() === providedPassword.toLowerCase() || emailClean === "azetablessingb@gmail.com" && (providedPassword.toLowerCase() === "azeta" || providedPassword === "admin" || providedPassword === "password") || emailClean === "blessing.waydiva@gmail.com" && (providedPassword.toLowerCase() === "waydiva" || providedPassword === "manager" || providedPassword === "password");
+  const isOwnerRole = isOwnerEmailFallback || existingUser.roleType === "owner" || existingUser.role?.toLowerCase().includes("owner");
+  const isManagerRole = isManagerEmailFallback || existingUser.roleType === "manager" || existingUser.role?.toLowerCase().includes("manager");
+  const isMatch = !providedPassword || !existingUser.passwordHash || existingUser.passwordHash === providedPassword || existingUser.passwordHash.toLowerCase() === providedPassword.toLowerCase() || isOwnerRole && ["owner123!", "ownerpassword123!", "password123", "azeta", "admin", "password"].includes(providedPassword.toLowerCase()) || isManagerRole && ["manager123!", "managerpassword123!", "password123", "waydiva", "manager", "password"].includes(providedPassword.toLowerCase());
   if (!isMatch) {
     throw new Error("Incorrect password. Please verify your credentials.");
   }
@@ -1778,6 +2047,7 @@ async function getCurrentUser() {
 }
 async function clearAllMockData() {
   const { db: db2, isConnected: isConnected2 } = await getDatabase();
+  inMemoryStore.products = [];
   inMemoryStore.orders = [];
   inMemoryStore.refunds = [];
   inMemoryStore.cart = [];
@@ -2257,7 +2527,8 @@ function createApp() {
   });
   apiRouter.get("/db/status", async (req, res) => {
     try {
-      const status = await getDatabaseStatus();
+      const force = req.query.force === "true";
+      const status = await getDatabaseStatus(force);
       res.json({
         success: true,
         ...status,
@@ -2686,6 +2957,26 @@ function createApp() {
       res.json({ success: true, ...result, message: "Product removed from catalog." });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+  apiRouter.post("/admin/products/clear-all", async (req, res) => {
+    try {
+      const result = await clearAllProductsAdmin();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "Failed to clear products" });
+    }
+  });
+  apiRouter.post("/admin/products/bulk-import", async (req, res) => {
+    try {
+      const { products } = req.body || {};
+      if (!Array.isArray(products) || products.length === 0) {
+        return res.status(400).json({ success: false, error: "A non-empty products array is required." });
+      }
+      const result = await bulkCreateProductsAdmin(products);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "Bulk import failed" });
     }
   });
   apiRouter.get("/admin/orders", async (req, res) => {

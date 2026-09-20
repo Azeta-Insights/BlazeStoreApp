@@ -134,7 +134,7 @@ export const AdminOrdersRefunds: React.FC<AdminOrdersRefundsProps> = ({
     try {
       await deleteFirestoreDoc('orders', orderToDelete.orderId).catch(() => {});
       await api.deleteOrder(orderToDelete.orderId);
-      onShowToast(`🗑️ Order #${orderToDelete.orderId} deleted from Firestore.`);
+      onShowToast(`🗑️ Order #${orderToDelete.orderId} deleted successfully.`);
       setOrderToDelete(null);
       await loadData();
       if (onDataChanged) onDataChanged();
@@ -232,9 +232,9 @@ export const AdminOrdersRefunds: React.FC<AdminOrdersRefundsProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight">Orders & Refund Operations</h2>
+            <h2 className="text-xl font-black tracking-tight">Orders &amp; Refund Operations</h2>
             <span className="rounded-full bg-[#10B981]/15 px-2.5 py-0.5 text-xs font-bold text-[#10B981]">
-              Firestore Protected
+              Secure Records
             </span>
           </div>
           <p className="text-xs text-[#8A8A94] mt-0.5">
@@ -611,7 +611,7 @@ export const AdminOrdersRefunds: React.FC<AdminOrdersRefundsProps> = ({
           <div className="p-4 border-b border-[#EDEDF2] dark:border-[#27272A] flex items-center justify-between">
             <div>
               <h3 className="font-bold text-sm">Refunds Audit Ledger</h3>
-              <p className="text-[11px] text-[#8A8A94]">Permanent record of all refunded transactions from Firestore & database</p>
+              <p className="text-[11px] text-[#8A8A94]">Permanent record of all refunded transactions</p>
             </div>
             <span className="text-xs font-bold text-[#E11D48] bg-[#FB7185]/15 px-3 py-1 rounded-full">
               {refunds.length} Refund Records
@@ -844,7 +844,7 @@ export const AdminOrdersRefunds: React.FC<AdminOrdersRefundsProps> = ({
                   <div>
                     <span className="font-bold text-xs block">Restock Order Items</span>
                     <span className="text-[10px] text-[#8A8A94] block">
-                      Automatically return product unit counts back to Firestore inventory catalog
+                      Automatically return product unit counts back to inventory catalog
                     </span>
                   </div>
                 </label>

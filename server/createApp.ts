@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import { parseCookies, verifyJwtToken } from './auth';
 import {
-  getDatabase,
   getDatabaseStatus,
   getProducts,
   getAllProductsAdmin,
@@ -9,6 +9,8 @@ import {
   createProductAdmin,
   updateProductAdmin,
   deleteProductAdmin,
+  clearAllProductsAdmin,
+  bulkCreateProductsAdmin,
   getCart,
   addToCart,
   updateCartQuantity,
@@ -108,6 +110,13 @@ export function createApp() {
   // Consolidated Bootstrap API for Instantaneous App Loading in a single round-trip
   apiRouter.get('/bootstrap', async (req, res) => {
     try {
+      const authHeader = req.headers.authorization || '';
+      const cookieHeader = req.headers.cookie || '';
+      const cookies = parseCookies(cookieHeader);
+      const token = authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7).trim()
+        : cookies.token || cookies.blazestore_jwt_token;
+
       const [
         dbStatus,
         products,
@@ -127,7 +136,7 @@ export function createApp() {
         getCart().catch(() => []),
         getWishlist().catch(() => []),
         getNotifications().catch(() => []),
-        getCurrentUser().catch(() => null),
+        getCurrentUser(token).catch(() => null),
       ]);
 
       const deals = (products || []).filter((p) => p.discountPercentage && p.discountPercentage >= 25);
@@ -202,7 +211,7 @@ export function createApp() {
     }
   });
 
-  // === MongoDB API Routes ===
+  // === Store Database API Routes ===
 
   // 1. Health & Database Status
   apiRouter.get('/db/status', async (req, res) => {
@@ -432,19 +441,23 @@ export function createApp() {
       const signature = req.headers['x-paystack-signature'] as string;
       const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
 
-      if (signature && isPaystackConfigured()) {
+      if (isPaystackConfigured()) {
+        if (!signature) {
+          console.warn('[Paystack Webhook] Rejected: Missing x-paystack-signature header');
+          return res.status(401).json({ status: 'error', message: 'Missing x-paystack-signature header' });
+        }
         const isValid = verifyPaystackWebhookSignature(rawBody, signature);
         if (!isValid) {
-          console.warn('[Paystack Webhook] Invalid signature rejected');
-          return res.status(400).json({ status: 'error', message: 'Invalid webhook signature' });
+          console.warn('[Paystack Webhook] Rejected: Invalid HMAC signature');
+          return res.status(401).json({ status: 'error', message: 'Invalid Paystack webhook signature' });
         }
       }
 
-      const event = req.body;
+      const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       if (event?.event === 'charge.success') {
         const reference = event.data?.reference;
         const amount = event.data?.amount;
-        console.log(`[Paystack Webhook] Successful payment for ref: ${reference}, amount: ${amount}`);
+        console.log(`[Paystack Webhook Verified] Successful payment for ref: ${reference}, amount: ₦${(amount / 100).toFixed(2)}`);
 
         if (reference) {
           try {
@@ -599,9 +612,13 @@ export function createApp() {
         return res.status(400).json({ success: false, error: 'Name and email are required.' });
       }
       const result = await registerUser({ name, email, password, phone, roleType });
+      if (result.token) {
+        res.setHeader('Set-Cookie', `token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
+      }
       res.json({ success: true, ...result });
     } catch (err: any) {
-      res.status(400).json({ success: false, error: err?.message || 'Registration failed' });
+      const status = err?.status || (err?.message?.includes('503 Service Unavailable') ? 503 : 400);
+      res.status(status).json({ success: false, error: err?.message || 'Registration failed' });
     }
   });
 
@@ -612,15 +629,26 @@ export function createApp() {
         return res.status(400).json({ success: false, error: 'Email is required.' });
       }
       const result = await loginUser({ email, password });
+      if (result.token) {
+        res.setHeader('Set-Cookie', `token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
+      }
       res.json({ success: true, ...result });
     } catch (err: any) {
-      res.status(400).json({ success: false, error: err?.message || 'Login failed' });
+      const status = err?.status || (err?.message?.includes('503 Service Unavailable') ? 503 : 400);
+      res.status(status).json({ success: false, error: err?.message || 'Login failed' });
     }
   });
 
   apiRouter.get('/auth/me', async (req, res) => {
     try {
-      const user = await getCurrentUser();
+      const authHeader = req.headers.authorization || '';
+      const cookieHeader = req.headers.cookie || '';
+      const cookies = parseCookies(cookieHeader);
+      const token = authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7).trim()
+        : cookies.token || cookies.blazestore_jwt_token;
+
+      const user = await getCurrentUser(token);
       res.json({ success: true, user });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message });
@@ -629,6 +657,7 @@ export function createApp() {
 
   apiRouter.post('/auth/logout', async (req, res) => {
     try {
+      res.setHeader('Set-Cookie', 'token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
       const result = await logoutUser();
       res.json(result);
     } catch (err: any) {
@@ -667,7 +696,7 @@ export function createApp() {
         return res.status(400).json({ success: false, error: 'Product name and price are required.' });
       }
       const product = await createProductAdmin(productData);
-      res.json({ success: true, product, message: 'Product added to MongoDB inventory.' });
+      res.json({ success: true, product, message: 'Product added to Firestore inventory.' });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message });
     }
@@ -702,6 +731,28 @@ export function createApp() {
       res.json({ success: true, ...result, message: 'Product removed from catalog.' });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  apiRouter.post('/admin/products/clear-all', async (req, res) => {
+    try {
+      const result = await clearAllProductsAdmin();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to clear products' });
+    }
+  });
+
+  apiRouter.post('/admin/products/bulk-import', async (req, res) => {
+    try {
+      const { products } = req.body || {};
+      if (!Array.isArray(products) || products.length === 0) {
+        return res.status(400).json({ success: false, error: 'A non-empty products array is required.' });
+      }
+      const result = await bulkCreateProductsAdmin(products);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Bulk import failed' });
     }
   });
 
@@ -850,7 +901,7 @@ export function createApp() {
     }
   });
 
-  // E. Direct MongoDB Database Hub & Operations API
+  // E. Direct Cloud Firestore Database Hub & Operations API
   apiRouter.get('/admin/db/collections', async (req, res) => {
     try {
       const collections = await getDbCollectionsInfo();

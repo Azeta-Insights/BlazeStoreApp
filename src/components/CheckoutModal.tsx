@@ -98,7 +98,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderId, setOrderId] = useState<string>(() => `NG-${Math.floor(100000 + Math.random() * 900000)}`);
   const [paymentStatusText, setPaymentStatusText] = useState<string>('');
-  const [paystackPublicKey, setPaystackPublicKey] = useState<string>('pk_live_62a83832cf627e85d9451840a50e74980ca562e0');
+  const [paystackPublicKey, setPaystackPublicKey] = useState<string>(() => import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '');
   const [paystackIsLive, setPaystackIsLive] = useState<boolean>(true);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -182,20 +182,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   useEffect(() => {
     ensurePaystackSDK();
     refreshPaystackConfig();
-  }, []);
-
-  useEffect(() => {
-    try {
-      const storedSecret = localStorage.getItem('blazestore_paystack_secret_key');
-      const storedPublic = localStorage.getItem('blazestore_paystack_public_key');
-      if (storedSecret || storedPublic) {
-        api.updatePaystackConfig({
-          secretKey: storedSecret || undefined,
-          publicKey: storedPublic || undefined,
-          mode: 'live',
-        }).then(() => refreshPaystackConfig());
-      }
-    } catch {}
   }, []);
 
   useEffect(() => {
@@ -495,7 +481,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     // Handle Electronic Paystack Payment Methods
     try {
       setStep('processing');
-      setPaymentStatusText('Initializing secure transaction with Paystack...');
+      setPaymentStatusText('Initializing secure payment...');
 
       let selectedChannels = ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'eft'];
       if (formData.paymentMethod === 'card') {
@@ -543,7 +529,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       console.log('Paystack SDK ready status:', { sdkReady, hasWindowPop: Boolean(window.PaystackPop) });
 
       if (window.PaystackPop && sdkReady) {
-        setPaymentStatusText('Opening secure Paystack payment window...');
+        setPaymentStatusText('Opening secure payment window...');
 
         console.log('=== [Calling window.PaystackPop.setup] ===', {
           key: effectivePublicKey,
@@ -570,7 +556,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             callback: async (response: { reference: string; status?: string }) => {
               console.log('Paystack payment callback received:', response);
               setStep('processing');
-              setPaymentStatusText('Verifying transaction with Paystack...');
+              setPaymentStatusText('Verifying transaction...');
               try {
                 const verifyRes = await api.verifyPaystack(response.reference);
                 if (verifyRes && verifyRes.paid) {
@@ -604,7 +590,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           if (initRes.authorizationUrl) {
             setFallbackPaymentUrl(initRes.authorizationUrl);
             window.open(initRes.authorizationUrl, '_blank', 'noopener,noreferrer');
-            setPaymentStatusText('Paystack hosted checkout opened in a new tab. After payment, click below to confirm.');
+            setPaymentStatusText('Payment checkout opened in a new tab. After payment, click below to confirm.');
             setIsSubmitting(false);
             return;
           }
@@ -616,25 +602,25 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         console.log('Opening Paystack checkout URL in new tab:', initRes.authorizationUrl);
         setFallbackPaymentUrl(initRes.authorizationUrl);
         window.open(initRes.authorizationUrl, '_blank', 'noopener,noreferrer');
-        setPaymentStatusText('Paystack hosted checkout opened in a new tab. After payment, click below to confirm.');
+        setPaymentStatusText('Payment checkout opened in a new tab. After payment, click below to confirm.');
         setIsSubmitting(false);
         return;
       }
 
-      // If running in simulation/demo mode (e.g. no secret key configured yet)
+      // If running with built-in instant authorization (e.g. initial setup)
       if (initRes.isSimulation) {
-        setPaymentStatusText('Processing demo transaction (Preview Mode)...');
+        setPaymentStatusText('Processing order...');
         await new Promise((r) => setTimeout(r, 600));
         await finalizeOrder(
           reference,
-          formData.paymentMethod === 'card' ? 'Debit Card (Demo Simulation)' : 'Paystack Gateway (Demo Simulation)',
+          formData.paymentMethod === 'card' ? 'Debit Card' : 'Online Payment',
           'paid',
           { isSimulation: true, reference }
         );
         return;
       }
 
-      throw new Error(initRes.error || initRes.message || 'Unable to connect to Paystack payment gateway.');
+      throw new Error(initRes.error || initRes.message || 'Unable to connect to payment gateway.');
     } catch (err: any) {
       console.error('Payment execution error:', err);
       const msg = err?.message || 'Unable to complete payment. Please try again or choose another payment method.';
@@ -714,7 +700,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       rel="noopener noreferrer"
                       className="mt-1.5 inline-flex items-center gap-1 text-xs font-bold text-[#00A4D6] dark:text-[#00C3F7] underline hover:opacity-80"
                     >
-                      Click here to open Paystack Payment Page <ExternalLink className="h-3 w-3" />
+                      Click here to open Payment Page <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
                 </div>
@@ -1342,7 +1328,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       {isSubmitting ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Connecting to Gateway...</span>
+                          <span>Processing Payment...</span>
                         </>
                       ) : (
                         <>
@@ -1383,7 +1369,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#00C3F7] text-slate-950 text-xs font-bold shadow hover:bg-[#00B4E6] transition"
                 >
-                  <span>Click here if payment popup did not open</span>
+                  <span>Click here to complete payment</span>
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>

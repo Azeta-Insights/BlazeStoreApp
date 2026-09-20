@@ -93,13 +93,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleClearMockData = async () => {
-    if (!window.confirm('Clear all mock orders, refunds, test carts, and sample records from Firestore & memory? Authentic admin accounts will be preserved.')) {
+    if (!window.confirm('Clear all sample orders, refunds, and temporary test records? Authentic staff accounts will be preserved.')) {
       return;
     }
     setIsClearingData(true);
     try {
       await api.clearMockData();
-      showToast('🧹 All mock dashboard data and test orders cleared!');
+      showToast('🧹 Sample store records reset successfully!');
       await loadAnalytics();
     } catch (e: any) {
       console.error(e);
@@ -182,10 +182,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           {/* Admin Persona Selector & System Controls */}
           <div className="flex items-center gap-3">
-            {/* Firestore Connection Status Pill */}
+            {/* Database Connection Status Pill */}
             <div className="hidden md:flex items-center gap-1.5 rounded-full bg-[#E3F2DD] dark:bg-[#1E3A1E] px-3 py-1 text-[11px] font-bold text-[#2E7D32] dark:text-[#4ADE80] border border-[#A3E635]/30">
               <span className="h-2 w-2 rounded-full bg-[#22C55E] animate-pulse" />
-              <span>Google Cloud Firestore Connected</span>
+              <span>Cloud Database Connected</span>
             </div>
 
             {/* Cloudinary Status Pill */}
@@ -351,7 +351,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }`}
           >
             <Database className="h-4 w-4" />
-            <span>Google Cloud Firestore Hub</span>
+            <span>Database &amp; Cloud Storage</span>
           </button>
         </div>
 

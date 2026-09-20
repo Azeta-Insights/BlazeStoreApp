@@ -54,7 +54,7 @@ export const AdminSalesReports: React.FC<AdminSalesReportsProps> = ({
     return (
       <div className="flex flex-col items-center justify-center p-16 space-y-3">
         <div className="h-8 w-8 animate-spin rounded-full border-3 border-[#7C6FE0] border-t-transparent" />
-        <p className="text-xs font-semibold text-[#8A8A94]">Loading real-time sales metrics from Firestore...</p>
+        <p className="text-xs font-semibold text-[#8A8A94]">Loading real-time sales metrics...</p>
       </div>
     );
   }
@@ -97,9 +97,9 @@ export const AdminSalesReports: React.FC<AdminSalesReportsProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-black tracking-tight">Sales Reports & Revenue Analytics (NGN ₦)</h2>
+            <h2 className="text-xl font-black tracking-tight">Sales Reports &amp; Revenue Analytics (NGN ₦)</h2>
             <span className="rounded-full bg-[#10B981]/15 px-2.5 py-0.5 text-xs font-bold text-[#10B981]">
-              Firestore Data
+              Live Store Data
             </span>
           </div>
           <p className="text-xs text-[#8A8A94] mt-0.5">

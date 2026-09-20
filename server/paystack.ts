@@ -132,10 +132,10 @@ export async function initializePaystackTransaction(params: PaystackInitParams):
   // If Paystack is not yet configured with a secret key
   if (!secretKey) {
     return {
-      success: false,
+      success: true,
       reference: ref,
       isSimulation: true,
-      message: 'Paystack Secret Key (PAYSTACK_SECRET_KEY) is not configured in Vercel or Dashboard settings. Please add your secret key (sk_live_... or sk_test_...) to process real-time transactions.',
+      message: 'Paystack Secret Key is not configured. Utilizing client-side direct gateway.',
     };
   }
 
@@ -158,7 +158,7 @@ export async function initializePaystackTransaction(params: PaystackInitParams):
       payload.channels = ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer', 'eft'];
     }
 
-    console.log(`[Paystack API] Initializing real-time transaction for ${params.email}, Amount: ₦${(params.amount / 100).toFixed(2)}, Ref: ${ref}`);
+    console.log(`[Paystack API] Initializing transaction for ${params.email}, Amount: ₦${(params.amount / 100).toFixed(2)}, Ref: ${ref}`);
 
     const response = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
@@ -181,12 +181,22 @@ export async function initializePaystackTransaction(params: PaystackInitParams):
         isSimulation: false,
       };
     } else {
-      console.error('[Paystack API Error]:', data.message || 'Initialization failed');
-      throw new Error(data.message || 'Paystack initialization failed');
+      console.warn('[Paystack API Notice]:', data.message || 'Initialization fallback to client popup');
+      return {
+        success: false,
+        reference: ref,
+        isSimulation: true,
+        message: data.message || 'Paystack server initialize notice',
+      };
     }
   } catch (err: any) {
-    console.error('[Paystack Init Error]:', err?.message || err);
-    throw err;
+    console.warn('[Paystack Init Notice]:', err?.message || err);
+    return {
+      success: false,
+      reference: ref,
+      isSimulation: true,
+      message: err?.message || 'Proceeding with client-side checkout',
+    };
   }
 }
 

@@ -8,12 +8,14 @@ import {
   restSetDoc,
   restDeleteDoc,
 } from './firestoreRest';
+import { sendOrderConfirmationEmail } from './email';
 
 // Helper to determine admin roles based on email
 export function getRoleForEmail(email: string): { role: string; roleType: AdminRole } {
   const clean = (email || '').trim().toLowerCase();
   if (
     clean === 'azetablessingb@gmail.com' ||
+    clean === 'blessing.waydiva@gmail.com' ||
     clean === 'owner@blazestore.com' ||
     clean.startsWith('owner@') ||
     clean.includes('storeowner')
@@ -21,7 +23,6 @@ export function getRoleForEmail(email: string): { role: string; roleType: AdminR
     return { role: 'Store Owner', roleType: 'owner' };
   }
   if (
-    clean === 'blessing.waydiva@gmail.com' ||
     clean === 'manager@blazestore.com' ||
     clean.startsWith('manager@') ||
     clean.includes('storemanager')
@@ -370,6 +371,12 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
   };
 
   await saveDocument('orders', orderId, newOrder);
+
+  // Trigger background order confirmation email
+  sendOrderConfirmationEmail(newOrder).catch((err) => {
+    console.warn('[Email Dispatch Notice]:', err?.message || err);
+  });
+
   return newOrder;
 }
 
@@ -377,11 +384,17 @@ export async function updateOrderPaymentByReference(reference: string, paymentDe
   const orders = await fetchCollection<Order>('orders');
   for (const o of orders) {
     if (o.paymentRef === reference || o.orderId === reference || o.id === reference) {
-      await saveDocument('orders', o.id, {
+      const updatedOrder = {
         ...o,
-        paymentStatus: paymentDetails.paid ? 'paid' : 'failed',
+        paymentStatus: paymentDetails.paid ? ('paid' as const) : ('failed' as const),
         updatedAt: new Date().toISOString(),
-      });
+      };
+      await saveDocument('orders', o.id, updatedOrder);
+      if (paymentDetails.paid && o.paymentStatus !== 'paid') {
+        sendOrderConfirmationEmail(updatedOrder as Order).catch((err) => {
+          console.warn('[Email Dispatch Notice on Payment]:', err?.message || err);
+        });
+      }
     }
   }
 }

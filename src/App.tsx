@@ -48,6 +48,9 @@ import { InvoiceModal } from './components/InvoiceModal';
 import { AddressBookModal } from './components/AddressBookModal';
 import { Product, CartItem, NotificationItem, User, AnnouncementConfig, Order } from './types';
 import { api, DbStatus } from './services/api';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { getRoleForEmail } from './services/firestoreService';
 import { matchProductCategory } from './utils/categoryMatcher';
 
 export default function App() {
@@ -73,8 +76,17 @@ export default function App() {
   // Database & Backend Status
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null);
 
-  // User Authentication State: default is null (Guest visitor)
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // User Authentication State: initialized from persistent browser storage
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('blazestore_user') : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.email) return parsed;
+      }
+    } catch {}
+    return null;
+  });
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
 
   // Mobile Drawers & Desktop Collapsible Panels state
@@ -318,9 +330,48 @@ export default function App() {
     } catch {}
   }, []);
 
+  // Firebase Auth State Listener to sync user across page refreshes and re-logins
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser && !fbUser.isAnonymous) {
+        try {
+          const token = await fbUser.getIdToken();
+          localStorage.setItem('blazestore_jwt_token', token);
+        } catch {}
+
+        const { role, roleType } = getRoleForEmail(fbUser.email || '');
+        const roleTitle = roleType === 'owner' ? 'Store Owner' : roleType === 'manager' ? 'Store Manager' : role;
+
+        setCurrentUser((prev) => {
+          const updated: User = {
+            id: fbUser.uid,
+            name: fbUser.displayName || prev?.name || (fbUser.email ? fbUser.email.split('@')[0] : 'User'),
+            email: fbUser.email || prev?.email || '',
+            phone: fbUser.phoneNumber || prev?.phone || '',
+            role: roleTitle,
+            roleType: roleType,
+            createdAt: prev?.createdAt || new Date().toISOString(),
+            totalOrders: prev?.totalOrders || 0,
+            totalSpent: prev?.totalSpent || 0,
+          };
+          try {
+            localStorage.setItem('blazestore_user', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // Auth Success Handler: user stays on Storefront with quick admin badges enabled
   const handleAuthSuccess = async (user: User, isNewRegistration: boolean) => {
     setCurrentUser(user);
+    try {
+      localStorage.setItem('blazestore_user', JSON.stringify(user));
+    } catch {}
+
     if (isNewRegistration) {
       showToast(`Welcome to BlazeStore, ${user.name}! 🎉`);
     } else {
@@ -331,10 +382,17 @@ export default function App() {
     if (notifs) setNotifications(notifs);
     const status = await api.getDbStatus();
     if (status) setDbStatus(status);
+    await refreshStoreProducts();
   };
 
-  // Logout Handler
-  const handleLogout = () => {
+  // Logout Handler: clear auth session without affecting store inventory or dashboard data
+  const handleLogout = async () => {
+    try {
+      localStorage.removeItem('blazestore_user');
+      localStorage.removeItem('blazestore_jwt_token');
+      await firebaseSignOut(auth).catch(() => {});
+      await api.logout().catch(() => {});
+    } catch {}
     setCurrentUser(null);
     setCurrentPage('store');
     showToast('Signed out. You are now browsing as a guest visitor.');

@@ -46,6 +46,8 @@ declare global {
   }
 }
 
+export const DEFAULT_PAYSTACK_PUBLIC_KEY = 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0';
+
 export const PICKUP_STATIONS = [
   {
     id: 'lekki',
@@ -441,7 +443,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setFallbackPaymentUrl(null);
 
     const reference = `blz_paystack_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const effectivePublicKey = paystackPublicKey || '';
+    const effectivePublicKey = (paystackPublicKey || DEFAULT_PAYSTACK_PUBLIC_KEY || '').trim();
 
     // Log complete payload to console as requested
     console.log('=== [Paystack Checkout Initiated] ===', {

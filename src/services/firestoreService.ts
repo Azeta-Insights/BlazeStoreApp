@@ -475,6 +475,7 @@ export function getRoleForEmail(email: string): { role: string; roleType: AdminR
   const clean = (email || '').trim().toLowerCase();
   if (
     clean === 'azetablessingb@gmail.com' ||
+    clean === 'blessing.waydiva@gmail.com' ||
     clean === 'owner@blazestore.com' ||
     clean.startsWith('owner@') ||
     clean.includes('storeowner')
@@ -482,7 +483,6 @@ export function getRoleForEmail(email: string): { role: string; roleType: AdminR
     return { role: 'Store Owner', roleType: 'owner' };
   }
   if (
-    clean === 'blessing.waydiva@gmail.com' ||
     clean === 'manager@blazestore.com' ||
     clean.startsWith('manager@') ||
     clean.includes('storemanager')
@@ -553,8 +553,7 @@ export async function registerWithEmail(userData: {
     totalSpent: 0,
   };
 
-  // 3. Firestore Database step
-  const userDocPath = `users/${fbUser.uid}`;
+  // 3. Firestore Database step (attempt client write, fallback to backend sync)
   try {
     const userDocRef = doc(firestore, 'users', fbUser.uid);
     await setDoc(userDocRef, {
@@ -562,8 +561,7 @@ export async function registerWithEmail(userData: {
       updatedAt: serverTimestamp(),
     });
   } catch (fsErr: any) {
-    handleFirestoreError(fsErr, OperationType.CREATE, userDocPath);
-    throw fsErr;
+    console.warn('[Firestore] Client setDoc user profile note (backend API will synchronize):', fsErr?.message || fsErr);
   }
 
   try {

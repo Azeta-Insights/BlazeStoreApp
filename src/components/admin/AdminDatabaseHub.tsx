@@ -27,6 +27,8 @@ import {
   Filter,
   Check,
   Copy,
+  Mail,
+  Send,
 } from 'lucide-react';
 import { DbStatus } from '../../services/api';
 import { api } from '../../services/api';
@@ -100,6 +102,12 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
   const [reconcileResult, setReconcileResult] = useState<{ totalChecked: number; reconciledCount: number } | null>(null);
   const [hasCopiedWebhook, setHasCopiedWebhook] = useState(false);
 
+  // Email Service Status State
+  const [emailStatus, setEmailStatus] = useState<{ configured: boolean; host: string; port: number; secure: boolean; user: string; from: string } | null>(null);
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
+
   const LIVE_WEBHOOK_URL = 'https://blaze-store-chi.vercel.app/api/paystack/webhook';
 
   const copyWebhookUrl = () => {
@@ -130,17 +138,21 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
   const checkStatus = async (force = false) => {
     setIsChecking(true);
     try {
-      const [res, cldRes, colRes, pstkRes] = await Promise.all([
+      const [res, cldRes, colRes, pstkRes, emailRes] = await Promise.all([
         api.getDbStatus(force),
         api.getCloudinaryStatus(),
         api.getDbCollections(),
         api.getPaystackConfig().catch(() => null),
+        api.getEmailStatus().catch(() => null),
       ]);
       setStatus(res);
       setCloudinaryStatus(cldRes);
       setCollections(colRes);
       if (pstkRes) {
         setPaystackConfig(pstkRes);
+      }
+      if (emailRes) {
+        setEmailStatus(emailRes);
       }
       if (res.connected) {
         onShowToast('⚡ System connection status refreshed');
@@ -152,6 +164,31 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
       onShowToast('❌ Failed to check system status');
     } finally {
       setIsChecking(false);
+    }
+  };
+
+  const handleSendTestEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testEmailAddress || !testEmailAddress.includes('@')) {
+      onShowToast('⚠️ Please enter a valid recipient email address.');
+      return;
+    }
+    setIsSendingTestEmail(true);
+    setTestEmailResult(null);
+    try {
+      const res = await api.sendTestEmail(testEmailAddress.trim());
+      if (res.success) {
+        setTestEmailResult({ success: true, message: `Email delivered successfully! (Message ID: ${res.messageId || 'OK'})` });
+        onShowToast('✅ Test email sent successfully!');
+      } else {
+        setTestEmailResult({ success: false, message: res.error || 'SMTP delivery failed.' });
+        onShowToast(`❌ Email test failed: ${res.error || 'Error'}`);
+      }
+    } catch (err: any) {
+      setTestEmailResult({ success: false, message: err?.message || 'Failed to dispatch test email.' });
+      onShowToast(`❌ Email error: ${err?.message || 'Error'}`);
+    } finally {
+      setIsSendingTestEmail(false);
     }
   };
 
@@ -1222,6 +1259,133 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
               <div>PAYSTACK_SECRET_KEY=&quot;sk_live_...&quot;</div>
               <div>PAYSTACK_PUBLIC_KEY=&quot;pk_live_...&quot;</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Outbound Email & Order Invoicing Hub */}
+      <div
+        className={`rounded-2xl p-6 border ${
+          isDarkMode ? 'bg-[#18181B] border-[#27272A]' : 'bg-white border-[#EDEDF2] shadow-xs'
+        }`}
+      >
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-[#EDEDF2] dark:border-[#27272A] pb-5">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/15 text-indigo-500">
+              <Mail className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-base">Outbound Email &amp; Order Invoicing</h3>
+                {emailStatus?.configured ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full">
+                    <CheckCircle2 className="h-3 w-3" /> SMTP Connected
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full">
+                    <AlertTriangle className="h-3 w-3" /> Notifications Mode
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#8A8A94] mt-0.5">
+                Automated order confirmation receipts, payment notifications, and delivery updates.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] px-3 py-2 border border-[#EDEDF2] dark:border-[#27272A] text-xs">
+              <span className="text-[10px] text-[#8A8A94] uppercase tracking-wider block font-bold">Host</span>
+              <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{emailStatus?.host || 'smtp.gmail.com'}</span>
+            </div>
+            <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] px-3 py-2 border border-[#EDEDF2] dark:border-[#27272A] text-xs">
+              <span className="text-[10px] text-[#8A8A94] uppercase tracking-wider block font-bold">Port</span>
+              <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{emailStatus?.port || 587}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <div className="space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[#8A8A94]">Current Configuration</h4>
+            <div className="rounded-xl p-4 bg-[#FAF9FC] dark:bg-[#202024] border border-[#EDEDF2] dark:border-[#27272A] text-xs space-y-2.5 font-mono">
+              <div className="flex justify-between">
+                <span className="text-[#8A8A94]">SMTP Status:</span>
+                <span className={emailStatus?.configured ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
+                  {emailStatus?.configured ? 'Active' : 'Unconfigured (In-App Store Feed Fallback)'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#8A8A94]">Authenticated User:</span>
+                <span className="text-slate-700 dark:text-slate-200">{emailStatus?.user || 'Not set'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#8A8A94]">Sender Identity:</span>
+                <span className="text-slate-700 dark:text-slate-200">{emailStatus?.from || 'BlazeStore NG <orders@blazestore.ng>'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#8A8A94]">Security Protocol:</span>
+                <span className="text-slate-700 dark:text-slate-200">{emailStatus?.secure ? 'Direct SSL (465)' : 'STARTTLS (587)'}</span>
+              </div>
+            </div>
+
+            <div className="bg-black/90 text-white rounded-lg p-3 text-[11px] font-mono space-y-1">
+              <div className="text-[#0AA5FF]"># Required Environment Variables (.env)</div>
+              <div>SMTP_HOST=&quot;smtp.gmail.com&quot;</div>
+              <div>SMTP_PORT=&quot;587&quot;</div>
+              <div>SMTP_USER=&quot;blessing.waydiva@gmail.com&quot;</div>
+              <div>SMTP_PASS=&quot;your-16-char-app-password&quot;</div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-[#8A8A94]">Test Email Dispatch</h4>
+            <form onSubmit={handleSendTestEmail} className="rounded-xl p-4 bg-[#FAF9FC] dark:bg-[#202024] border border-[#EDEDF2] dark:border-[#27272A] space-y-3">
+              <p className="text-xs text-[#8A8A94]">
+                Enter an email address to send a sample order confirmation receipt and test connectivity.
+              </p>
+
+              <div>
+                <input
+                  type="email"
+                  placeholder="recipient@example.com"
+                  value={testEmailAddress}
+                  onChange={(e) => setTestEmailAddress(e.target.value)}
+                  className="w-full rounded-xl px-3.5 py-2.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSendingTestEmail}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition disabled:opacity-50 cursor-pointer shadow-xs"
+              >
+                {isSendingTestEmail ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Sending Test Email...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    <span>Send Test Email</span>
+                  </>
+                )}
+              </button>
+
+              {testEmailResult && (
+                <div
+                  className={`rounded-xl p-3 text-xs ${
+                    testEmailResult.success
+                      ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  <p className="font-bold">{testEmailResult.success ? 'Success' : 'Dispatch Failed'}</p>
+                  <p className="text-[11px] mt-0.5 break-all">{testEmailResult.message}</p>
+                </div>
+              )}
+            </form>
           </div>
         </div>
       </div>

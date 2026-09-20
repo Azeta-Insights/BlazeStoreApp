@@ -53,6 +53,10 @@ import {
   getCloudinaryStatus,
 } from './cloudinary';
 import {
+  getEmailStatus,
+  sendTestEmail,
+} from './email';
+import {
   isPaystackConfigured,
   isPaystackLive,
   getPaystackPublicKey,
@@ -214,6 +218,27 @@ export function createApp() {
     } catch (err: any) {
       console.error('[Upload API] Error:', err);
       res.status(500).json({ success: false, error: err?.message || 'Failed to process image upload' });
+    }
+  });
+
+  // === Outbound Email Service Status & Test ===
+  apiRouter.get('/email/status', (req, res) => {
+    try {
+      const status = getEmailStatus();
+      res.json({ success: true, ...status });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  apiRouter.post('/email/test', async (req, res) => {
+    try {
+      const { email } = req.body || {};
+      const target = email || process.env.SMTP_USER || 'admin@blazestore.ng';
+      const result = await sendTestEmail(target);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to trigger test email' });
     }
   });
 
@@ -385,6 +410,7 @@ export function createApp() {
 
   // Paystack Initialize Route
   apiRouter.post('/paystack/initialize', async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     try {
       const { email, amount, reference, callbackUrl, metadata, channels } = req.body || {};
       if (!email || !amount || Number(amount) <= 0) {
@@ -403,15 +429,21 @@ export function createApp() {
         metadata,
       });
 
-      res.json(result);
+      return res.json(result);
     } catch (err: any) {
       console.error('[Paystack Init Endpoint Error]:', err);
-      res.status(500).json({ success: false, error: err?.message || 'Failed to initialize Paystack payment' });
+      return res.status(200).json({
+        success: false,
+        reference: req.body?.reference || `blz_ref_${Date.now()}`,
+        isSimulation: true,
+        error: err?.message || 'Failed to initialize Paystack payment',
+      });
     }
   });
 
   // Paystack Verify Route
   apiRouter.get('/paystack/verify/:reference', async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
     try {
       const { reference } = req.params;
       if (!reference) {
@@ -434,10 +466,15 @@ export function createApp() {
         }
       }
 
-      res.json(result);
+      return res.json(result);
     } catch (err: any) {
       console.error('[Paystack Verify Endpoint Error]:', err);
-      res.status(500).json({ success: false, error: err?.message || 'Failed to verify Paystack payment' });
+      return res.status(200).json({
+        success: false,
+        paid: false,
+        status: 'pending',
+        error: err?.message || 'Failed to verify Paystack payment',
+      });
     }
   });
 

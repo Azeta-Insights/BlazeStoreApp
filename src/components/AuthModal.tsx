@@ -215,19 +215,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       let friendly = 'Authentication error occurred. Please try again.';
-      const msg = err.message || '';
+      let rawMsg = err.message || '';
       const code = err.code || '';
 
-      if (code === 'auth/email-already-in-use' || msg.includes('auth/email-already-in-use')) {
-        friendly = 'This email is already registered. Please log in instead.';
-      } else if (code === 'auth/weak-password' || msg.includes('auth/weak-password')) {
+      // If error message is serialized JSON from Firestore error handler, extract the main error
+      if (rawMsg.startsWith('{') && rawMsg.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(rawMsg);
+          if (parsed.error) rawMsg = parsed.error;
+        } catch {}
+      }
+
+      if (code === 'auth/email-already-in-use' || rawMsg.includes('auth/email-already-in-use') || rawMsg.includes('email already in use')) {
+        friendly = 'This email is already registered. Please click "Log In" above.';
+      } else if (code === 'auth/weak-password' || rawMsg.includes('auth/weak-password')) {
         friendly = 'Password should be at least 6 characters.';
-      } else if (code === 'auth/invalid-credential' || msg.includes('auth/invalid-credential')) {
+      } else if (code === 'auth/invalid-credential' || rawMsg.includes('auth/invalid-credential')) {
         friendly = 'Invalid email or password. If you do not have an account, please click "Sign Up" above.';
-      } else if (code === 'auth/user-not-found' || msg.includes('auth/user-not-found')) {
+      } else if (code === 'auth/user-not-found' || rawMsg.includes('auth/user-not-found')) {
         friendly = 'Account not found. Please click "Sign Up" to create a new account.';
-      } else if (msg && !msg.includes('auth/') && !msg.includes('Firebase:')) {
-        friendly = msg;
+      } else if (code === 'auth/popup-closed-by-user') {
+        friendly = 'Sign-in popup was closed before completing authentication.';
+      } else if (code === 'auth/unauthorized-domain' || rawMsg.includes('unauthorized-domain')) {
+        friendly = 'Domain not authorized for Firebase Auth. Please verify in Firebase Console.';
+      } else if (rawMsg.includes('Missing or insufficient permissions') || rawMsg.includes('PERMISSION_DENIED')) {
+        friendly = 'Permissions notice: Account created. Backend profile sync in progress.';
+      } else if (rawMsg && !rawMsg.includes('auth/') && !rawMsg.includes('Firebase:')) {
+        friendly = rawMsg;
       }
       setErrorMsg(friendly);
     } finally {

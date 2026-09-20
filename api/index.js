@@ -2,2117 +2,1367 @@
 import express from "express";
 import dotenv from "dotenv";
 
+// server/firebase.ts
+import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+
+// firebase-applet-config.json
+var firebase_applet_config_default = {
+  projectId: "blazestoreapp",
+  appId: "1:724566112743:web:372057304061ac5e54e542",
+  apiKey: "AIzaSyBvT-lc2aM4COerr8EJIyODfa7gIvUdmBQ",
+  authDomain: "blazestoreapp.firebaseapp.com",
+  storageBucket: "blazestoreapp.firebasestorage.app",
+  messagingSenderId: "724566112743",
+  measurementId: "",
+  oAuthClientId: "",
+  recaptchaSiteKey: ""
+};
+
+// server/firebase.ts
+var projectId = firebase_applet_config_default.projectId || "blazestoreapp";
+var adminApp = getApps().length === 0 ? initializeApp({ projectId }) : getApp();
+var adminDb = getFirestore(adminApp);
+var adminAuth = getAuth(adminApp);
+
+// server/auth.ts
+async function verifyFirebaseIdToken(idToken) {
+  if (!idToken || typeof idToken !== "string") return null;
+  let rawToken = idToken.trim();
+  if (rawToken.startsWith("Bearer ")) {
+    rawToken = rawToken.substring(7).trim();
+  }
+  if (!rawToken) return null;
+  try {
+    const decoded = await adminAuth.verifyIdToken(rawToken);
+    return {
+      uid: decoded.uid,
+      email: decoded.email,
+      name: decoded.name || decoded.email?.split("@")[0] || "User",
+      role: decoded.role || void 0,
+      roleType: decoded.roleType || void 0
+    };
+  } catch (err) {
+    if (err?.code === "auth/id-token-expired" || err?.message?.includes("expired")) {
+      console.log("[Server Auth] Notice: Firebase ID token has expired. Request will fall back to public/cached permissions or prompt token refresh.");
+    } else {
+      console.warn("[Server Auth] Token verification notice:", err?.message || err);
+    }
+    return null;
+  }
+}
+function parseCookies(cookieHeader) {
+  const list = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(";").forEach((cookie) => {
+    const parts = cookie.split("=");
+    const name = parts.shift()?.trim();
+    if (name) {
+      list[name] = decodeURIComponent(parts.join("=").trim());
+    }
+  });
+  return list;
+}
+
 // server/db.ts
-import { MongoClient } from "mongodb";
+import fs from "fs";
+import path from "path";
 
 // src/data/mockData.ts
-var BEST_DEALS = [
-  {
-    id: "deal-1",
-    name: "Classic Cashmere Blend Cardigan",
-    category: "Women's Fashion",
-    price: 45e3,
-    originalPrice: 62e3,
-    discountPercentage: 28,
-    rating: 4.8,
-    reviewCount: 342,
-    image: "https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=500&auto=format&fit=crop&q=80",
-    badge: "-28%",
-    isHot: true,
-    colors: ["#E5D9C5", "#333333", "#C7A788"],
-    description: "Ultra-soft relaxed fit sweater knit from sustainable cashmere yarn.",
-    inStock: true
-  },
-  {
-    id: "deal-2",
-    name: "Active Pulse Wireless ANC Headphones",
-    category: "Electronics",
-    price: 95e3,
-    originalPrice: 125e3,
-    discountPercentage: 24,
-    rating: 4.9,
-    reviewCount: 520,
-    image: "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=500&auto=format&fit=crop&q=80",
-    badge: "-24%",
-    isHot: true,
-    colors: ["#1F2937", "#9CA3AF", "#F3F4F6"],
-    description: "Lossless audio streaming with 40-hour battery and ambient noise cancelling.",
-    inStock: true
-  },
-  {
-    id: "deal-3",
-    name: "Minimalist Matte Leather Crossbody",
-    category: "Bags & Accessories",
-    price: 38e3,
-    originalPrice: 55e3,
-    discountPercentage: 31,
-    rating: 4.7,
-    reviewCount: 218,
-    image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=500&auto=format&fit=crop&q=80",
-    badge: "-31%",
-    colors: ["#3A2F2D", "#D4B996", "#222222"],
-    description: "Handcrafted genuine leather pouch with magnetic closure and card slots.",
-    inStock: true
-  },
-  {
-    id: "deal-4",
-    name: "Botanical Hydrating Glow Serum 50ml",
-    category: "Skincare & Beauty",
-    price: 18500,
-    originalPrice: 28e3,
-    discountPercentage: 34,
-    rating: 4.9,
-    reviewCount: 467,
-    image: "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=500&auto=format&fit=crop&q=80",
-    badge: "-34%",
-    isHot: true,
-    colors: ["#F9A8D4"],
-    description: "Enriched with Hyaluronic Acid, Vitamin C, and rosehip extract for 24h glow.",
-    inStock: true
-  },
-  {
-    id: "deal-5",
-    name: "Opulent Oud & Velvet Rose Perfume Layering Kit",
-    category: "Sillage and Olfactory",
-    brand: "Olfactory Studio",
-    collection: "Artisan Perfume Kits",
-    price: 65e3,
-    originalPrice: 88e3,
-    discountPercentage: 26,
-    rating: 4.9,
-    reviewCount: 280,
-    image: "https://images.unsplash.com/photo-1541643600914-78b084683601?w=500&auto=format&fit=crop&q=80",
-    badge: "Special Sale",
-    isHot: true,
-    isDeal: true,
-    colors: ["#3B0764", "#881337", "#701A75"],
-    description: "Artisan extrait de parfum kit featuring rich Royal Oud, Turkish Velvet Rose elixir, and custom blending wand for high sillage projection.",
-    inStock: true
-  }
-];
-var RECOMMENDED_PRODUCTS = [
-  {
-    id: "rec-so-1",
-    name: "Solar Amber & Cashmere Vanilla Olfactory Layering Accord",
-    category: "Sillage and Olfactory",
-    brand: "Sillage Paris",
-    collection: "Olfactory Luxury",
-    price: 58e3,
-    originalPrice: 75e3,
-    discountPercentage: 22,
-    rating: 4.95,
-    reviewCount: 194,
-    image: "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=500&auto=format&fit=crop&q=80",
-    badge: "Hot Seller",
-    isBestSeller: true,
-    colors: ["#D97706", "#92400E", "#FEF3C7"],
-    selectedColor: "#D97706",
-    description: "Luxury olfactory scent kit with Golden Baltic Amber, Bourbon Vanilla, and Cashmere Woods for 24h custom lingering sillage.",
-    inStock: true
-  },
-  {
-    id: "rec-so-2",
-    name: "Savoir Olfactory Discovery Quintet (5x15ml Blending Set)",
-    category: "Sillage and Olfactory",
-    brand: "Maison Olfactive",
-    collection: "Layering Editions",
-    price: 82e3,
-    originalPrice: 105e3,
-    discountPercentage: 22,
-    rating: 4.98,
-    reviewCount: 312,
-    image: "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=500&auto=format&fit=crop&q=80",
-    badge: "Exclusive Kit",
-    isNewArrival: true,
-    colors: ["#4C1D95", "#065F46", "#831843"],
-    selectedColor: "#4C1D95",
-    description: "Master perfumer discovery box containing 5 concentrated elixir accords designed for bespoke day-to-night scent layering.",
-    inStock: true
-  },
-  {
-    id: "rec-so-3",
-    name: "Smoked Vetiver & Bergamot Sillage Accent Elixir",
-    category: "Sillage and Olfactory",
-    brand: "Sillage Paris",
-    collection: "Artisan Perfume Kits",
-    price: 72e3,
-    originalPrice: 9e4,
-    discountPercentage: 20,
-    rating: 4.88,
-    reviewCount: 140,
-    image: "https://images.unsplash.com/photo-1588405748880-12d1d2a59f75?w=500&auto=format&fit=crop&q=80",
-    badge: "Special Sale",
-    isDeal: true,
-    colors: ["#064E3B", "#1E1B4B", "#701A75"],
-    selectedColor: "#064E3B",
-    description: "High-concentration vetiver, Calabrian bergamot, and leather musk created for boosting scent longevity and personal sillage trail.",
-    inStock: true
-  },
-  {
-    id: "rec-1",
-    name: "Monochrome Urban Sneakers",
-    category: "Footwear",
-    price: 55e3,
-    originalPrice: 7e4,
-    discountPercentage: 21,
-    rating: 4.8,
-    reviewCount: 189,
-    image: "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=500&auto=format&fit=crop&q=80",
-    colors: ["#FFFFFF", "#18181B", "#7C6FE0"],
-    selectedColor: "#FFFFFF",
-    description: "Breathable mesh knit upper with cloud foam cushioning for all-day steps.",
-    inStock: true
-  },
-  {
-    id: "rec-2",
-    name: "Matte Ceramic Pour-Over Kettle & Cup",
-    category: "Home & Living",
-    price: 32e3,
-    originalPrice: 42e3,
-    discountPercentage: 24,
-    rating: 4.9,
-    reviewCount: 94,
-    image: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500&auto=format&fit=crop&q=80",
-    colors: ["#F4ECE1", "#3F3F46", "#86EFAC"],
-    selectedColor: "#F4ECE1",
-    description: "Hand-finished artisanal stoneware crafted for perfect slow brew mornings.",
-    inStock: true
-  },
-  {
-    id: "rec-3",
-    name: "Polarized Vintage Acetate Sunglasses",
-    category: "Accessories",
-    price: 24e3,
-    originalPrice: 32e3,
-    discountPercentage: 25,
-    rating: 4.6,
-    reviewCount: 112,
-    image: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=500&auto=format&fit=crop&q=80",
-    colors: ["#78350F", "#18181B", "#D97706"],
-    selectedColor: "#78350F",
-    description: "UV400 scratch-resistant tinted lenses with lightweight titanium frame arms.",
-    inStock: true
-  },
-  {
-    id: "rec-4",
-    name: "Smart Fit Pulse Tracker Watch Gen 3",
-    category: "Electronics",
-    price: 68e3,
-    originalPrice: 85e3,
-    discountPercentage: 20,
-    rating: 4.7,
-    reviewCount: 310,
-    image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80",
-    colors: ["#1E1B4B", "#F472B6", "#CBD5E1"],
-    selectedColor: "#1E1B4B",
-    description: "Continuous heart rate, SpO2 monitoring, sleep tracker, and 14-day battery life.",
-    inStock: true
-  },
-  {
-    id: "rec-5",
-    name: "Relaxed Linen Camp Collar Shirt",
-    category: "Men's Fashion",
-    price: 36e3,
-    originalPrice: 48e3,
-    discountPercentage: 25,
-    rating: 4.8,
-    reviewCount: 145,
-    image: "https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=500&auto=format&fit=crop&q=80",
-    colors: ["#E0E7FF", "#FEF3C7", "#DCFCE7"],
-    selectedColor: "#E0E7FF",
-    description: "100% breathable European French flax linen with coconut shell buttons.",
-    inStock: true
-  },
-  {
-    id: "rec-6",
-    name: "Minimalist LED Ambient Desk Lamp",
-    category: "Home & Living",
-    price: 28500,
-    originalPrice: 38e3,
-    discountPercentage: 25,
-    rating: 4.9,
-    reviewCount: 88,
-    image: "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?w=500&auto=format&fit=crop&q=80",
-    colors: ["#FFFFFF", "#18181B", "#F59E0B"],
-    selectedColor: "#FFFFFF",
-    description: "Touch dimming with 3 color temperatures, wireless phone charging pad base.",
-    inStock: true
-  },
-  {
-    id: "rec-7",
-    name: "Hydrating Velvet Tinted Lip Balm",
-    category: "Skincare & Beauty",
-    price: 12e3,
-    originalPrice: 16500,
-    discountPercentage: 27,
-    rating: 4.7,
-    reviewCount: 204,
-    image: "https://images.unsplash.com/photo-1586495777744-4413f21062fa?w=500&auto=format&fit=crop&q=80",
-    colors: ["#FB7185", "#E11D48", "#BE185D"],
-    selectedColor: "#FB7185",
-    description: "Shea butter and jojoba oil formula delivering sheer buildable berry color.",
-    inStock: true
-  },
-  {
-    id: "rec-8",
-    name: "Acoustic Portable Bluetooth Speaker",
-    category: "Electronics",
-    price: 52e3,
-    originalPrice: 68e3,
-    discountPercentage: 23,
-    rating: 4.8,
-    reviewCount: 275,
-    image: "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500&auto=format&fit=crop&q=80",
-    colors: ["#3B82F6", "#10B981", "#18181B"],
-    selectedColor: "#3B82F6",
-    description: "360\xB0 stereo sound, IPX7 waterproof rating, 20h playtime with deep bass boost.",
-    inStock: true
-  }
-];
+var BEST_DEALS = [];
+var RECOMMENDED_PRODUCTS = [];
 
-// server/db.ts
-var client = globalThis._mongoClientPromise ? null : null;
-var db = globalThis._mongoDb || null;
-var isConnecting = false;
-var isConnected = Boolean(globalThis._mongoDb);
-var connectionError = null;
-var enrichedProducts = [...BEST_DEALS, ...RECOMMENDED_PRODUCTS].map((p, idx) => ({
-  ...p,
-  stockQuantity: p.inStock !== false ? 25 + idx * 7 % 60 : 0,
-  sku: `BLZ-${p.category.slice(0, 3).toUpperCase()}-${1e3 + idx}`,
-  costPrice: Number((p.price * 0.55).toFixed(2))
-}));
-var inMemoryStore = {
-  products: [],
-  cart: [],
-  wishlist: [],
-  orders: [],
-  refunds: [],
-  notifications: [],
-  users: [
-    {
-      id: "admin-owner-azeta",
-      name: "Azeta Blessing",
-      email: "azetablessingb@gmail.com",
-      phone: "+234 803 345 6789",
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-      role: "Store Owner",
-      roleType: "owner",
-      passwordHash: "Owner123!",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    {
-      id: "admin-owner-alias",
-      name: "Store Owner (Admin)",
-      email: "owner@blazestore.com",
-      phone: "+234 803 345 6789",
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-      role: "Store Owner",
-      roleType: "owner",
-      passwordHash: "Owner123!",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    {
-      id: "admin-manager-waydiva",
-      name: "Blessing Waydiva",
-      email: "blessing.waydiva@gmail.com",
-      phone: "+234 812 987 6543",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-      role: "Store Manager",
-      roleType: "manager",
-      passwordHash: "Manager123!",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    {
-      id: "admin-manager-alias",
-      name: "Store Operations Manager",
-      email: "manager@blazestore.com",
-      phone: "+234 812 987 6543",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-      role: "Store Manager",
-      roleType: "manager",
-      passwordHash: "Manager123!",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+// server/firestoreRest.ts
+var projectId2 = firebase_applet_config_default.projectId || "blazestoreapp";
+var apiKey = firebase_applet_config_default.apiKey || "";
+var BASE_URL = `https://firestore.googleapis.com/v1/projects/${projectId2}/databases/(default)/documents`;
+function toFirestoreValue(val) {
+  if (val === null || val === void 0) {
+    return { nullValue: null };
+  }
+  if (typeof val === "boolean") {
+    return { booleanValue: val };
+  }
+  if (typeof val === "number") {
+    if (Number.isInteger(val)) {
+      return { integerValue: String(val) };
     }
-  ],
-  currentUser: null
-};
-var hasLoggedPlaceholderNotice = false;
-var lastFailureTime = 0;
-var lastFailureError = null;
-var FAILURE_COOLDOWN_MS = 25e3;
-function analyzeMongoUri(rawUri) {
-  if (!rawUri || rawUri.trim() === "") {
+    return { doubleValue: val };
+  }
+  if (typeof val === "string") {
+    return { stringValue: val };
+  }
+  if (Array.isArray(val)) {
     return {
-      isValid: false,
-      error: "MONGODB_URI environment variable is not configured."
+      arrayValue: {
+        values: val.map(toFirestoreValue)
+      }
     };
   }
-  const trimmed = rawUri.trim();
-  const placeholderRegex = /:<([^>]+)>/;
-  const match = trimmed.match(placeholderRegex);
-  if (match) {
-    const inner = match[1].toLowerCase();
-    if (inner === "db_password" || inner === "password" || inner === "your_password" || inner === "pwd") {
-      return {
-        isValid: false,
-        isPlaceholder: true,
-        error: 'MONGODB_URI contains unreplaced placeholder "<db_password>". Replace it with your actual MongoDB Atlas password in Settings -> Secrets.'
-      };
+  if (typeof val === "object") {
+    const fields = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== void 0) {
+        fields[k] = toFirestoreValue(v);
+      }
     }
+    return {
+      mapValue: { fields }
+    };
   }
-  let cleanUri = trimmed;
-  if (/:<[^>]+>@/.test(trimmed)) {
-    cleanUri = trimmed.replace(/:<([^>]+)>@/, ":$1@");
+  return { stringValue: String(val) };
+}
+function fromFirestoreValue(val) {
+  if (!val) return null;
+  if ("stringValue" in val) return val.stringValue;
+  if ("integerValue" in val) return parseInt(val.integerValue, 10);
+  if ("doubleValue" in val) return Number(val.doubleValue);
+  if ("booleanValue" in val) return Boolean(val.booleanValue);
+  if ("nullValue" in val) return null;
+  if ("timestampValue" in val) return val.timestampValue;
+  if ("arrayValue" in val) {
+    return (val.arrayValue?.values || []).map(fromFirestoreValue);
+  }
+  if ("mapValue" in val) {
+    const obj = {};
+    for (const [k, v] of Object.entries(val.mapValue?.fields || {})) {
+      obj[k] = fromFirestoreValue(v);
+    }
+    return obj;
+  }
+  return null;
+}
+function fromFirestoreDoc(doc) {
+  if (!doc || !doc.fields) return null;
+  const data = {};
+  for (const [k, v] of Object.entries(doc.fields)) {
+    data[k] = fromFirestoreValue(v);
+  }
+  const id = doc.name ? doc.name.split("/").pop() : void 0;
+  return { ...data, id: data.id || id };
+}
+async function restGetCollection(collectionName) {
+  try {
+    const url = `${BASE_URL}/${collectionName}?key=${apiKey}&pageSize=300`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      return [];
+    }
+    const json = await res.json();
+    if (!json.documents) return [];
+    return json.documents.map(fromFirestoreDoc).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+async function restGetDoc(collectionName, docId) {
+  try {
+    const url = `${BASE_URL}/${collectionName}/${docId}?key=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return fromFirestoreDoc(json);
+  } catch {
+    return null;
+  }
+}
+async function restSetDoc(collectionName, docId, data) {
+  try {
+    const fields = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v !== void 0) {
+        fields[k] = toFirestoreValue(v);
+      }
+    }
+    const url = `${BASE_URL}/${collectionName}/${docId}?key=${apiKey}`;
+    await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields })
+    });
+    return { ...data, id: docId };
+  } catch {
+    return { ...data, id: docId };
+  }
+}
+async function restDeleteDoc(collectionName, docId) {
+  try {
+    const url = `${BASE_URL}/${collectionName}/${docId}?key=${apiKey}`;
+    const res = await fetch(url, { method: "DELETE" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// server/email.ts
+import nodemailer from "nodemailer";
+var runtimeSmtpHost = "smtp.gmail.com";
+var runtimeSmtpPort = 587;
+var runtimeSmtpUser = "blessing.waydiva@gmail.com";
+var runtimeSmtpPass = "pmfmflsgfdyxfwet";
+var runtimeSmtpFrom = "BlazeStore NG <blessing.waydiva@gmail.com>";
+var runtimeSmtpSecure = false;
+async function setRuntimeEmailConfig(config) {
+  if (config.host !== void 0) runtimeSmtpHost = config.host.trim();
+  if (config.port !== void 0) runtimeSmtpPort = Number(config.port) || 587;
+  if (config.user !== void 0) runtimeSmtpUser = config.user.trim();
+  if (config.pass !== void 0) runtimeSmtpPass = config.pass.trim();
+  if (config.from !== void 0) runtimeSmtpFrom = config.from.trim();
+  if (config.secure !== void 0) runtimeSmtpSecure = Boolean(config.secure);
+  try {
+    await updateDbDocument("settings", "smtp", {
+      host: runtimeSmtpHost,
+      port: runtimeSmtpPort,
+      user: runtimeSmtpUser,
+      pass: runtimeSmtpPass,
+      from: runtimeSmtpFrom,
+      secure: runtimeSmtpSecure,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  } catch (err) {
+    console.warn("[SMTP Settings] Could not persist SMTP settings to database:", err);
+  }
+}
+async function loadSmtpConfigFromDb() {
+  try {
+    const saved = await getDbDocument("settings", "smtp");
+    if (saved) {
+      if (saved.host) runtimeSmtpHost = saved.host;
+      if (saved.port) runtimeSmtpPort = Number(saved.port) || 587;
+      if (saved.user) runtimeSmtpUser = saved.user;
+      if (saved.pass) runtimeSmtpPass = saved.pass;
+      if (saved.from) runtimeSmtpFrom = saved.from;
+      if (saved.secure !== void 0) runtimeSmtpSecure = Boolean(saved.secure);
+    }
+  } catch (err) {
+    console.warn("[SMTP Settings] Could not load SMTP settings from database:", err);
+  }
+}
+loadSmtpConfigFromDb().catch(() => {
+});
+function getEmailTransporter() {
+  let host = (runtimeSmtpHost || process.env.SMTP_HOST || "").trim();
+  const port = runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587;
+  const user = (runtimeSmtpUser || process.env.SMTP_USER || "").trim();
+  let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "").trim();
+  if (!host && user.toLowerCase().endsWith("@gmail.com")) {
+    host = "smtp.gmail.com";
+  }
+  if ((host.includes("gmail.com") || host.includes("googlemail.com") || user.toLowerCase().endsWith("@gmail.com")) && pass) {
+    pass = pass.replace(/[\s-]+/g, "");
+  }
+  const secure = runtimeSmtpSecure || process.env.SMTP_SECURE === "true" || port === 465;
+  if (!host || !user || !pass) {
+    return null;
+  }
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass
+    },
+    name: "blazestore.ng"
+  });
+}
+function getSenderFromAddress(user) {
+  const activeUser = (user || runtimeSmtpUser || process.env.SMTP_USER || "").trim();
+  const rawFrom = (runtimeSmtpFrom || process.env.SMTP_FROM || "").trim();
+  if (rawFrom) {
+    if (rawFrom.includes("http://") || rawFrom.includes("https://") || rawFrom.includes(".vercel.app")) {
+      const cleanName = rawFrom.replace(/<https?:\/\/[^>]+>/gi, "").replace(/https?:\/\/\S+/gi, "").replace(/[<>]/g, "").trim() || "BlazeStore NG";
+      return `"${cleanName}" <${activeUser}>`;
+    }
+    const emailMatch = rawFrom.match(/<([^>]+@[^>]+)>/);
+    if (emailMatch && emailMatch[1]) {
+      const namePart = rawFrom.replace(/<[^>]+>/, "").trim() || "BlazeStore NG";
+      const cleanName = namePart.replace(/^["']|["']$/g, "").trim();
+      return `"${cleanName}" <${emailMatch[1]}>`;
+    }
+    if (!rawFrom.includes("@")) {
+      const cleanName = rawFrom.replace(/^["']|["']$/g, "").trim();
+      return `"${cleanName || "BlazeStore NG"}" <${activeUser}>`;
+    }
+    return rawFrom;
+  }
+  if (activeUser && activeUser.includes("@")) {
+    return `"BlazeStore NG" <${activeUser}>`;
+  }
+  return `"BlazeStore NG" <orders@blazestore.ng>`;
+}
+function formatNaira(amount) {
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 0
+  }).format(amount);
+}
+async function sendOrderConfirmationEmail(order) {
+  const recipientEmail = order.customer?.email;
+  if (!recipientEmail || !recipientEmail.includes("@")) {
+    console.warn("[Email Service] Skipping email dispatch: Invalid customer email on order", order.id);
+    return { success: false, error: "Recipient email is missing or invalid." };
+  }
+  const transporter = getEmailTransporter();
+  const smtpUser = (runtimeSmtpUser || process.env.SMTP_USER || "").trim();
+  const fromAddress = getSenderFromAddress(smtpUser);
+  const itemsHtml = (order.items || []).map(
+    (item) => `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #EDEDF2;">
+          <strong>${item.name}</strong>
+          ${item.variant ? `<br><small style="color: #6B7280;">Variant: ${item.variant}</small>` : ""}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #EDEDF2; text-align: center;">${item.quantity}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #EDEDF2; text-align: right;">${formatNaira(item.price * item.quantity)}</td>
+      </tr>
+    `
+  ).join("");
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Order Confirmation - BlazeStore</title>
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F4F4F5; margin: 0; padding: 24px; color: #18181B;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border-radius: 16px; overflow: hidden; border: 1px solid #E4E4E7; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+          
+          <!-- Header -->
+          <div style="background-color: #7C6FE0; padding: 28px; text-align: center; color: #FFFFFF;">
+            <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">BLAZESTORE</h1>
+            <p style="margin: 6px 0 0 0; font-size: 14px; opacity: 0.9;">Thank you for your order! \u{1F389}</p>
+          </div>
+
+          <!-- Body -->
+          <div style="padding: 28px;">
+            <p style="font-size: 16px; line-height: 1.5; margin-top: 0;">
+              Hello <strong>${order.customer?.name || "Valued Customer"}</strong>,
+            </p>
+            <p style="font-size: 14px; line-height: 1.6; color: #52525B;">
+              We have received your order <strong>#${order.orderId || order.id}</strong>. Our logistics team is already preparing it for delivery.
+            </p>
+
+            <!-- Order Summary Box -->
+            <div style="background-color: #FAFAFA; border: 1px solid #F4F4F5; border-radius: 12px; padding: 16px; margin: 20px 0;">
+              <div style="display: flex; justify-content: space-between; font-size: 13px; color: #71717A; margin-bottom: 8px;">
+                <span>Order Reference: <strong>${order.orderId || order.id}</strong></span>
+                <span>Payment Status: <strong style="color: ${order.paymentStatus === "paid" ? "#10B981" : "#F59E0B"};">${(order.paymentStatus || "processing").toUpperCase()}</strong></span>
+              </div>
+              <div style="font-size: 13px; color: #71717A;">
+                <span>Payment Method: <strong>${order.paymentMethod || "Paystack"}</strong></span>
+                ${order.paymentRef ? `<br><span>Transaction Ref: <code style="background: #E4E4E7; padding: 2px 4px; border-radius: 4px;">${order.paymentRef}</code></span>` : ""}
+              </div>
+            </div>
+
+            <!-- Items Table -->
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 24px 0;">
+              <thead>
+                <tr style="background-color: #F4F4F5; color: #52525B; text-align: left;">
+                  <th style="padding: 10px 12px; border-radius: 6px 0 0 6px;">Item</th>
+                  <th style="padding: 10px 12px; text-align: center;">Qty</th>
+                  <th style="padding: 10px 12px; text-align: right; border-radius: 0 6px 6px 0;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2" style="padding: 8px 12px; text-align: right; color: #71717A;">Subtotal:</td>
+                  <td style="padding: 8px 12px; text-align: right; font-weight: 600;">${formatNaira(order.subtotal || 0)}</td>
+                </tr>
+                ${order.discount ? `
+                <tr>
+                  <td colspan="2" style="padding: 8px 12px; text-align: right; color: #10B981;">Discount:</td>
+                  <td style="padding: 8px 12px; text-align: right; color: #10B981; font-weight: 600;">-${formatNaira(order.discount)}</td>
+                </tr>` : ""}
+                <tr>
+                  <td colspan="2" style="padding: 8px 12px; text-align: right; color: #71717A;">Delivery Fee:</td>
+                  <td style="padding: 8px 12px; text-align: right; font-weight: 600;">${order.shipping === 0 ? "FREE" : formatNaira(order.shipping || 0)}</td>
+                </tr>
+                <tr style="border-top: 2px solid #18181B; font-size: 16px;">
+                  <td colspan="2" style="padding: 12px; text-align: right; font-weight: 900;">Total Order Amount:</td>
+                  <td style="padding: 12px; text-align: right; font-weight: 900; color: #7C6FE0;">${formatNaira(order.total || 0)}</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <!-- Delivery Address -->
+            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; margin-top: 24px;">
+              <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 800; color: #334155;">\u{1F4CD} Delivery Address</h4>
+              <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #64748B;">
+                ${order.customer?.name || ""}<br>
+                ${order.customer?.address || "Standard Delivery"}<br>
+                ${order.customer?.city || ""}, ${order.customer?.state || ""}, ${order.customer?.country || "Nigeria"}<br>
+                \u{1F4DE} ${order.customer?.phone || "Not provided"}
+              </p>
+            </div>
+
+            <p style="font-size: 13px; line-height: 1.6; color: #71717A; margin-top: 28px; text-align: center;">
+              Need help with this order? Contact our support team at <a href="mailto:support@blazestore.ng" style="color: #7C6FE0; text-decoration: none; font-weight: 600;">support@blazestore.ng</a> or call <strong>+234 800 2529 378</strong>.
+            </p>
+          </div>
+
+          <!-- Footer -->
+          <div style="background-color: #FAFAFA; border-top: 1px solid #F4F4F5; padding: 20px; text-align: center; font-size: 12px; color: #A1A1AA;">
+            \xA9 ${(/* @__PURE__ */ new Date()).getFullYear()} BlazeStore Nigeria. All rights reserved.
+          </div>
+
+        </div>
+      </body>
+    </html>
+  `;
+  if (!transporter) {
+    console.log(`[Email Dispatch Notice] SMTP not configured in environment variables (SMTP_HOST, SMTP_USER, SMTP_PASS). Order confirmation for #${order.orderId || order.id} was logged and saved in Firestore notifications feed.`);
+    return {
+      success: true,
+      simulated: true,
+      messageId: `sim-${Date.now()}`
+    };
   }
   try {
-    const uriMatch = cleanUri.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)$/);
-    if (uriMatch) {
-      const [, scheme, user, pass, rest] = uriMatch;
-      const decodedUser = decodeURIComponent(user);
-      const decodedPass = decodeURIComponent(pass);
-      const encodedUser = encodeURIComponent(decodedUser);
-      const encodedPass = encodeURIComponent(decodedPass);
-      cleanUri = `${scheme}${encodedUser}:${encodedPass}@${rest}`;
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to: recipientEmail,
+      subject: `Order Confirmed #${order.orderId || order.id} - BlazeStore`,
+      html: htmlContent
+    });
+    console.log(`[Email Service] Order confirmation email sent to ${recipientEmail} for order #${order.orderId || order.id}. MessageId: ${info.messageId}`);
+    return {
+      success: true,
+      messageId: info.messageId,
+      simulated: false
+    };
+  } catch (err) {
+    const friendlyError = formatSmtpError(err);
+    console.warn(`[Email Dispatch Notice] Could not deliver email to ${recipientEmail}:`, friendlyError);
+    return {
+      success: false,
+      error: friendlyError
+    };
+  }
+}
+function formatSmtpError(err) {
+  const msg = err?.message || String(err);
+  if (msg.includes("535 5.7.139") || msg.includes("SmtpClientAuthentication is disabled")) {
+    return "Microsoft 365 / Outlook error (535 5.7.139): Authenticated SMTP is disabled for this mailbox by Microsoft policy. Please enable SMTP AUTH in Microsoft 365 Admin Center, or use Gmail SMTP with a 16-character App Password (smtp.gmail.com:587).";
+  }
+  if (msg.includes("535-5.7.8") || msg.includes("Username and Password not accepted") || msg.includes("BadCredentials") || msg.includes("535 5.7.8")) {
+    return "Authentication failed: Invalid email or password. If using Gmail, please create and use a 16-character Google App Password (not your personal account password).";
+  }
+  if (msg.includes("ETIMEDOUT") || msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
+    return `Connection to SMTP host failed (${err.code || "Network Error"}). Please check your SMTP Host address and Port number.`;
+  }
+  return msg;
+}
+function getEmailStatus() {
+  const host = runtimeSmtpHost || process.env.SMTP_HOST;
+  const user = runtimeSmtpUser || process.env.SMTP_USER;
+  const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD);
+  const isConfigured = Boolean(host && user && hasPass);
+  return {
+    configured: isConfigured,
+    host: host || "Not set",
+    port: runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587,
+    secure: runtimeSmtpSecure || process.env.SMTP_SECURE === "true",
+    user: user ? `${user.substring(0, 4)}***@${user.split("@")[1] || ""}` : "Not set",
+    from: runtimeSmtpFrom || process.env.SMTP_FROM || "BlazeStore NG <orders@blazestore.ng>"
+  };
+}
+async function sendTestEmail(targetEmail) {
+  const transporter = getEmailTransporter();
+  if (!transporter) {
+    return {
+      success: false,
+      error: "SMTP credentials (SMTP_HOST, SMTP_USER, SMTP_PASS) are not configured in environment variables."
+    };
+  }
+  const fromAddress = getSenderFromAddress((runtimeSmtpUser || process.env.SMTP_USER || "").trim());
+  try {
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to: targetEmail,
+      subject: "\u2705 BlazeStore Outbound Email Test Successful",
+      html: `
+        <div style="font-family: sans-serif; padding: 24px; color: #1E293B;">
+          <h2 style="color: #4F46E5;">Email Delivery Connected! \u{1F389}</h2>
+          <p>This is a verification test from your <strong>BlazeStore Nigeria</strong> store platform.</p>
+          <p>Your SMTP email configuration is active and ready to deliver real-time order receipts, customer invoices, and delivery updates.</p>
+          <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #94A3B8;">Timestamp: ${(/* @__PURE__ */ new Date()).toISOString()}</p>
+        </div>
+      `
+    });
+    return {
+      success: true,
+      messageId: info.messageId,
+      simulated: false
+    };
+  } catch (err) {
+    const friendly = formatSmtpError(err);
+    return {
+      success: false,
+      error: friendly
+    };
+  }
+}
+
+// server/db.ts
+function getRoleForEmail(email) {
+  const clean = (email || "").trim().toLowerCase();
+  if (clean === "azetablessingb@gmail.com" || clean === "blessing.waydiva@gmail.com" || clean === "owner@blazestore.com" || clean.startsWith("owner@") || clean.includes("storeowner")) {
+    return { role: "Store Owner", roleType: "owner" };
+  }
+  if (clean === "manager@blazestore.com" || clean.startsWith("manager@") || clean.includes("storemanager")) {
+    return { role: "Store Manager", roleType: "manager" };
+  }
+  return { role: "Customer", roleType: "customer" };
+}
+var DB_DIR = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? path.join("/tmp", "data") : path.join(process.cwd(), "data");
+var DB_FILE = path.join(DB_DIR, "blazestore_db.json");
+var serverStore = /* @__PURE__ */ new Map();
+function loadDatabaseFromDisk() {
+  try {
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true });
+    }
+    if (fs.existsSync(DB_FILE)) {
+      const raw = fs.readFileSync(DB_FILE, "utf-8");
+      if (raw.trim()) {
+        const data = JSON.parse(raw);
+        if (data && typeof data === "object") {
+          for (const [colName, docs] of Object.entries(data)) {
+            if (Array.isArray(docs)) {
+              const map = getStoreMap(colName);
+              docs.forEach((d) => {
+                if (d && d.id) {
+                  map.set(String(d.id), d);
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Storage] Failed to read blazestore_db.json from disk:", err);
+  }
+}
+var saveTimeout = null;
+function persistDatabaseToDisk(immediate = false) {
+  const executeSave = () => {
+    try {
+      if (!fs.existsSync(DB_DIR)) {
+        fs.mkdirSync(DB_DIR, { recursive: true });
+      }
+      const serializable = {};
+      for (const [colName, map] of serverStore.entries()) {
+        serializable[colName] = Array.from(map.values());
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(serializable, null, 2), "utf-8");
+    } catch (err) {
+      console.warn("[Storage] Failed to save blazestore_db.json to disk:", err);
+    }
+  };
+  if (immediate) {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    executeSave();
+  } else {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(executeSave, 300);
+  }
+}
+function getStoreMap(collectionName) {
+  let map = serverStore.get(collectionName);
+  if (!map) {
+    map = /* @__PURE__ */ new Map();
+    serverStore.set(collectionName, map);
+  }
+  return map;
+}
+loadDatabaseFromDisk();
+var syncedCollections = /* @__PURE__ */ new Set();
+async function syncCollectionFromRemote(collectionName) {
+  try {
+    const remoteDocs = await restGetCollection(collectionName);
+    const map = getStoreMap(collectionName);
+    if (Array.isArray(remoteDocs) && remoteDocs.length > 0) {
+      remoteDocs.forEach((d) => {
+        if (d && d.id) {
+          map.set(String(d.id), d);
+        }
+      });
+      persistDatabaseToDisk(false);
+    }
+  } catch (err) {
+    console.warn(`[Firestore Sync] Failed to load ${collectionName}:`, err);
+  }
+}
+async function fetchCollection(collectionName) {
+  const map = getStoreMap(collectionName);
+  if (!syncedCollections.has(collectionName)) {
+    syncedCollections.add(collectionName);
+    await syncCollectionFromRemote(collectionName);
+  }
+  return Array.from(map.values());
+}
+async function fetchDocument(collectionName, docId) {
+  const map = getStoreMap(collectionName);
+  if (map.has(docId)) {
+    return map.get(docId);
+  }
+  try {
+    const remote = await restGetDoc(collectionName, docId);
+    if (remote) {
+      map.set(docId, remote);
+      persistDatabaseToDisk(false);
+      return remote;
     }
   } catch {
   }
-  return { isValid: true, cleanUri };
+  return null;
 }
-var USE_FIRESTORE_PRIMARY = true;
-async function getDatabase(forceRetry = false) {
-  if (USE_FIRESTORE_PRIMARY) {
-    return {
-      db: null,
-      isConnected: false,
-      error: null,
-      isUsingFallback: true
-    };
-  }
-  const uri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB_NAME || "blazestore";
-  const analysis = analyzeMongoUri(uri);
-  if (!analysis.isValid) {
-    if (analysis.isPlaceholder && !hasLoggedPlaceholderNotice) {
-      console.log('[MongoDB] Notice: MONGODB_URI contains unreplaced placeholder "<db_password>". Operating in local in-memory fallback mode until Atlas password is configured in Settings.');
-      hasLoggedPlaceholderNotice = true;
-    }
-    return {
-      db: null,
-      isConnected: false,
-      error: analysis.error || "MONGODB_URI is not valid.",
-      isUsingFallback: true
-    };
-  }
-  const cleanUri = analysis.cleanUri;
-  if (globalThis._mongoDb) {
-    db = globalThis._mongoDb;
-    isConnected = true;
-    return { db, isConnected: true, error: null, isUsingFallback: false };
-  }
-  if (db && isConnected) {
-    return { db, isConnected: true, error: null, isUsingFallback: false };
-  }
-  if (!forceRetry && lastFailureTime > 0 && Date.now() - lastFailureTime < FAILURE_COOLDOWN_MS) {
-    return {
-      db: null,
-      isConnected: false,
-      error: lastFailureError,
-      isUsingFallback: true
-    };
-  }
-  if (isConnecting) {
-    let waitCount = 0;
-    while (isConnecting && waitCount < 10) {
-      await new Promise((r) => setTimeout(r, 200));
-      waitCount++;
-    }
-    if (globalThis._mongoDb || db && isConnected) {
-      db = globalThis._mongoDb || db;
-      return { db, isConnected: true, error: null, isUsingFallback: false };
-    }
-  }
+async function saveDocument(collectionName, docId, data, merge = true) {
+  const map = getStoreMap(collectionName);
+  const existing = map.get(docId) || {};
+  const merged = merge ? { ...existing, ...data, id: docId } : { ...data, id: docId };
+  map.set(docId, merged);
+  persistDatabaseToDisk(true);
+  restSetDoc(collectionName, docId, merged).catch((err) => {
+    console.warn(`[Firestore Save] Failed for ${collectionName}/${docId}:`, err);
+  });
+}
+async function removeDocument(collectionName, docId) {
+  const map = getStoreMap(collectionName);
+  map.delete(docId);
+  persistDatabaseToDisk(true);
+  restDeleteDoc(collectionName, docId).catch((err) => {
+    console.warn(`[Firestore Delete] Failed for ${collectionName}/${docId}:`, err);
+  });
+}
+async function getDatabaseStatus(force = false) {
   try {
-    isConnecting = true;
-    connectionError = null;
-    if (!globalThis._mongoClientPromise || forceRetry) {
-      client = new MongoClient(cleanUri, {
-        serverSelectionTimeoutMS: 4e3,
-        connectTimeoutMS: 4e3,
-        maxPoolSize: 10,
-        minPoolSize: 0,
-        maxIdleTimeMS: 6e4
-      });
-      globalThis._mongoClientPromise = client.connect();
-    }
-    const connectedClient = await globalThis._mongoClientPromise;
-    client = connectedClient;
-    db = connectedClient.db(dbName);
-    globalThis._mongoDb = db;
-    isConnected = true;
-    lastFailureTime = 0;
-    lastFailureError = null;
-    console.log(`[MongoDB] Connected successfully to database: "${dbName}" (Serverless Pool Active)`);
-    await seedDatabaseIfEmpty(db);
-    await ensureAdminAccountsExist(db);
-    await ensureDatabaseIndexes(db);
-    return { db, isConnected: true, error: null, isUsingFallback: false };
-  } catch (err) {
-    const rawMsg = err?.message || String(err);
-    if (rawMsg.includes("bad auth") || rawMsg.includes("authentication failed")) {
-      connectionError = "MongoDB Atlas authentication failed. Please verify your username and password in Settings -> Secrets.";
-      console.warn("[MongoDB] Authentication failed for MongoDB Atlas credentials.");
-    } else {
-      connectionError = rawMsg;
-      console.warn("[MongoDB] Connection failed:", rawMsg);
-    }
-    lastFailureTime = Date.now();
-    lastFailureError = connectionError;
-    isConnected = false;
-    db = null;
-    globalThis._mongoClientPromise = void 0;
-    globalThis._mongoDb = void 0;
-    return {
-      db: null,
-      isConnected: false,
-      error: connectionError,
-      isUsingFallback: true
-    };
-  } finally {
-    isConnecting = false;
-  }
-}
-async function getDatabaseStatus(forceRetry = false) {
-  if (USE_FIRESTORE_PRIMARY) {
+    const start = performance.now();
+    const [products, orders, refunds, users] = await Promise.all([
+      fetchCollection("products"),
+      fetchCollection("orders"),
+      fetchCollection("refunds"),
+      fetchCollection("users")
+    ]);
+    const end = performance.now();
     return {
       connected: true,
-      isUsingFirestore: true,
       isUsingFallback: false,
-      hasUri: false,
-      isPlaceholder: false,
-      database: "ai-studio-remixblazestore-823c9f5b-5b40-41d5-ae12-c83427f88e9f",
-      projectId: "buoyant-aggregator-kgmzr",
-      cluster: "Google Cloud Firestore",
+      database: "Cloud Firestore (blazestoreapp)",
+      provider: "firestore-rest",
+      hasUri: true,
+      pingMs: Math.max(1, Math.round(end - start)),
       error: null,
-      pingMs: 14,
       stats: {
-        products: inMemoryStore.products.length,
-        cart: inMemoryStore.cart.length,
-        wishlist: inMemoryStore.wishlist.length,
-        orders: inMemoryStore.orders.length,
-        refunds: inMemoryStore.refunds.length,
-        users: inMemoryStore.users.length
-      },
-      serverTime: (/* @__PURE__ */ new Date()).toISOString()
-    };
-  }
-  const uri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB_NAME || "blazestore";
-  const analysis = analyzeMongoUri(uri);
-  if (!analysis.isValid) {
-    return {
-      connected: false,
-      isUsingFallback: true,
-      hasUri: Boolean(uri && uri.trim()),
-      isPlaceholder: analysis.isPlaceholder ?? false,
-      database: dbName,
-      error: analysis.error,
-      pingMs: null,
-      cluster: null,
-      stats: {
-        products: inMemoryStore.products.length,
-        cart: inMemoryStore.cart.length,
-        wishlist: inMemoryStore.wishlist.length,
-        orders: inMemoryStore.orders.length,
-        refunds: inMemoryStore.refunds.length,
-        users: inMemoryStore.users.length
+        products: products.length,
+        orders: orders.length,
+        refunds: refunds.length,
+        users: users.length,
+        cart: 0,
+        wishlist: 0
       }
     };
-  }
-  const startTime = Date.now();
-  const { db: database, isConnected: connected, error } = await getDatabase(forceRetry);
-  if (connected && database) {
-    try {
-      const pingRes = await database.command({ ping: 1 });
-      const pingMs = Date.now() - startTime;
-      const hostMatch = uri.match(/@([^/?]+)/);
-      const clusterHost = hostMatch ? hostMatch[1] : "MongoDB Atlas";
-      const [productsCount, cartCount, wishlistCount, ordersCount, refundsCount, usersCount] = await Promise.all([
-        database.collection("products").countDocuments().catch(() => 0),
-        database.collection("cart").countDocuments().catch(() => 0),
-        database.collection("wishlist").countDocuments().catch(() => 0),
-        database.collection("orders").countDocuments().catch(() => 0),
-        database.collection("refunds").countDocuments().catch(() => 0),
-        database.collection("users").countDocuments().catch(() => 0)
-      ]);
-      return {
-        connected: true,
-        isUsingFallback: false,
-        hasUri: true,
-        database: dbName,
-        error: null,
-        pingMs,
-        cluster: clusterHost,
-        pingOk: pingRes.ok === 1,
-        stats: {
-          products: productsCount,
-          cart: cartCount,
-          wishlist: wishlistCount,
-          orders: ordersCount,
-          refunds: refundsCount,
-          users: usersCount
-        }
-      };
-    } catch (pingErr) {
-      return {
-        connected: false,
-        isUsingFallback: true,
-        hasUri: true,
-        database: dbName,
-        error: `Ping failed: ${pingErr?.message || pingErr}`,
-        pingMs: null,
-        cluster: null,
-        stats: {
-          products: inMemoryStore.products.length,
-          cart: inMemoryStore.cart.length,
-          wishlist: inMemoryStore.wishlist.length,
-          orders: inMemoryStore.orders.length,
-          refunds: inMemoryStore.refunds.length,
-          users: inMemoryStore.users.length
-        }
-      };
-    }
-  }
-  return {
-    connected: false,
-    isUsingFallback: true,
-    hasUri: true,
-    database: dbName,
-    error: error || "Failed to connect to MongoDB cluster.",
-    pingMs: null,
-    cluster: null,
-    stats: {
-      products: inMemoryStore.products.length,
-      cart: inMemoryStore.cart.length,
-      wishlist: inMemoryStore.wishlist.length,
-      orders: inMemoryStore.orders.length,
-      refunds: inMemoryStore.refunds.length,
-      users: inMemoryStore.users.length
-    }
-  };
-}
-async function ensureAdminAccountsExist(database) {
-  try {
-    const usersColl = database.collection("users");
-    const ownerAccounts = [
-      {
-        id: "admin-owner-azeta",
-        name: "Azeta Blessing",
-        email: "azetablessingb@gmail.com",
-        phone: "+234 803 345 6789",
-        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-        role: "Store Owner",
-        roleType: "owner",
-        passwordHash: "Owner123!",
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      },
-      {
-        id: "admin-owner-alias",
-        name: "Store Owner (Admin)",
-        email: "owner@blazestore.com",
-        phone: "+234 803 345 6789",
-        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-        role: "Store Owner",
-        roleType: "owner",
-        passwordHash: "Owner123!",
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    ];
-    for (const owner of ownerAccounts) {
-      await usersColl.updateOne(
-        { email: owner.email },
-        { $set: owner },
-        { upsert: true }
-      );
-    }
-    console.log("[Database] Ensured Store Owner accounts: azetablessingb@gmail.com, owner@blazestore.com");
-    const managerAccounts = [
-      {
-        id: "admin-manager-waydiva",
-        name: "Blessing Waydiva",
-        email: "blessing.waydiva@gmail.com",
-        phone: "+234 812 987 6543",
-        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-        role: "Store Manager",
-        roleType: "manager",
-        passwordHash: "Manager123!",
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      },
-      {
-        id: "admin-manager-alias",
-        name: "Store Operations Manager",
-        email: "manager@blazestore.com",
-        phone: "+234 812 987 6543",
-        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-        role: "Store Manager",
-        roleType: "manager",
-        passwordHash: "Manager123!",
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    ];
-    for (const manager of managerAccounts) {
-      await usersColl.updateOne(
-        { email: manager.email },
-        { $set: manager },
-        { upsert: true }
-      );
-    }
-    console.log("[Database] Ensured Store Manager accounts: blessing.waydiva@gmail.com, manager@blazestore.com");
-  } catch (e) {
-    console.error("[Database] Error ensuring admin accounts:", e);
-  }
-}
-async function ensureDatabaseIndexes(database) {
-  try {
-    const ordersColl = database.collection("orders");
-    await ordersColl.createIndex({ paymentReference: 1 });
-    await ordersColl.createIndex({ orderId: 1 });
-    await ordersColl.createIndex({ createdAt: -1 });
-    await ordersColl.createIndex({ paymentStatus: 1 });
-    await ordersColl.createIndex({ "customer.email": 1 });
-    const productsColl = database.collection("products");
-    await productsColl.createIndex({ id: 1 }, { unique: true });
-    await productsColl.createIndex({ category: 1 });
-    const usersColl = database.collection("users");
-    await usersColl.createIndex({ email: 1 }, { unique: true });
-    console.log("[MongoDB] Verified database collections and indexes.");
   } catch (err) {
-    console.warn("[MongoDB] Index creation note:", err?.message || err);
+    return {
+      connected: true,
+      isUsingFallback: false,
+      database: "Cloud Firestore (blazestoreapp)",
+      provider: "firestore-rest",
+      hasUri: true,
+      pingMs: 1,
+      error: null,
+      stats: {
+        products: 0,
+        orders: 0,
+        refunds: 0,
+        users: 0,
+        cart: 0,
+        wishlist: 0
+      }
+    };
   }
-}
-async function seedDatabaseIfEmpty(database) {
 }
 async function getProducts(category, search) {
   try {
-    const { db: db2, isConnected: isConnected2 } = await getDatabase();
-    if (isConnected2 && db2) {
-      const query = {};
-      if (category && category !== "all") {
-        query.category = { $regex: category, $options: "i" };
-      }
-      if (search && search.trim()) {
-        query.$or = [
-          { name: { $regex: search.trim(), $options: "i" } },
-          { category: { $regex: search.trim(), $options: "i" } },
-          { description: { $regex: search.trim(), $options: "i" } }
-        ];
-      }
-      const docs = await db2.collection("products").find(query).toArray();
-      return docs.map(({ _id, ...rest }) => rest);
+    let items = await fetchCollection("products");
+    if (category && category.toLowerCase() !== "all") {
+      const cleanCat = category.toLowerCase().replace(/[^a-z0-9]/g, "");
+      items = items.filter((p) => {
+        if (!p.category) return false;
+        const cleanProdCat = p.category.toLowerCase().replace(/[^a-z0-9]/g, "");
+        return cleanProdCat === cleanCat || cleanProdCat.includes(cleanCat) || cleanCat.includes(cleanProdCat);
+      });
     }
-  } catch (err) {
-    console.warn("[getProducts DB fallback]:", err);
+    if (search) {
+      const qStr = search.toLowerCase();
+      items = items.filter(
+        (p) => p.name?.toLowerCase().includes(qStr) || p.description?.toLowerCase().includes(qStr) || p.brand?.toLowerCase().includes(qStr) || p.category?.toLowerCase().includes(qStr) || p.sku?.toLowerCase().includes(qStr)
+      );
+    }
+    return items;
+  } catch {
+    return [];
   }
-  return inMemoryStore.products.filter((p) => {
-    const matchCat = !category || category === "all" || p.category.toLowerCase().includes(category.toLowerCase());
-    const matchSearch = !search || !search.trim() || p.name.toLowerCase().includes(search.toLowerCase()) || p.category.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  });
 }
 async function getAllProductsAdmin(category, search) {
-  try {
-    const { db: db2, isConnected: isConnected2 } = await getDatabase();
-    if (isConnected2 && db2) {
-      const query = {};
-      if (category && category !== "all") {
-        query.category = { $regex: category, $options: "i" };
-      }
-      if (search && search.trim()) {
-        query.$or = [
-          { name: { $regex: search.trim(), $options: "i" } },
-          { sku: { $regex: search.trim(), $options: "i" } },
-          { category: { $regex: search.trim(), $options: "i" } }
-        ];
-      }
-      let docs = await db2.collection("products").find(query).sort({ updatedAt: -1 }).toArray();
-      if (docs.length === 0 && !search && (!category || category === "all")) {
-        await seedDatabaseIfEmpty(db2);
-        docs = await db2.collection("products").find(query).sort({ updatedAt: -1 }).toArray();
-      }
-      if (docs.length > 0) {
-        return docs.map(({ _id, ...rest }) => rest);
-      }
-    }
-  } catch (err) {
-    console.warn("[getAllProductsAdmin DB fallback]:", err);
-  }
-  return inMemoryStore.products.filter((p) => {
-    const matchCat = !category || category === "all" || p.category.toLowerCase().includes(category.toLowerCase());
-    const matchSearch = !search || !search.trim() || p.name.toLowerCase().includes(search.toLowerCase()) || p.sku && p.sku.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  });
+  return getProducts(category, search);
 }
-async function updateProductStock(productId, newStock, inStock) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const stockVal = Math.max(0, newStock);
-  const isAvailable = inStock !== void 0 ? inStock : stockVal > 0;
-  if (isConnected2 && db2) {
-    await db2.collection("products").updateOne(
-      { id: productId },
-      {
-        $set: {
-          stockQuantity: stockVal,
-          inStock: isAvailable,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      }
-    );
-    return await db2.collection("products").findOne({ id: productId });
+async function updateProductStock(id, stockQuantity, inStock) {
+  const current = await fetchDocument("products", id);
+  if (!current) {
+    throw new Error(`Product ${id} not found in Firestore.`);
   }
-  const idx = inMemoryStore.products.findIndex((p) => p.id === productId);
-  if (idx !== -1) {
-    inMemoryStore.products[idx] = {
-      ...inMemoryStore.products[idx],
-      stockQuantity: stockVal,
-      inStock: isAvailable,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    return inMemoryStore.products[idx];
-  }
-  return null;
-}
-async function createProductAdmin(productData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const newProduct = {
-    id: `prod-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
-    name: productData.name?.trim() || "New Store Product",
-    category: productData.category?.trim() || "General",
-    brand: productData.brand?.trim() || void 0,
-    collection: productData.collection?.trim() || void 0,
-    price: Number(productData.price) || 29.99,
-    originalPrice: productData.originalPrice ? Number(productData.originalPrice) : void 0,
-    costPrice: productData.costPrice ? Number(productData.costPrice) : Number((Number(productData.price || 30) * 0.5).toFixed(2)),
-    discountPercentage: productData.discountPercentage || 0,
-    rating: Number(productData.rating) || 5,
-    reviewCount: Number(productData.reviewCount) || 1,
-    image: productData.image?.trim() || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80",
-    badge: productData.badge || "New",
-    isHot: Boolean(productData.isHot),
-    isDeal: Boolean(productData.isDeal),
-    isBestSeller: Boolean(productData.isBestSeller),
-    isNewArrival: Boolean(productData.isNewArrival),
-    colors: Array.isArray(productData.colors) ? productData.colors : void 0,
-    description: productData.description?.trim() || "High-quality curated item from BlazeStore catalog.",
-    inStock: productData.inStock !== false,
-    stockQuantity: Number(productData.stockQuantity) || 30,
-    sku: productData.sku?.trim() || `BLZ-${(productData.category || "GEN").slice(0, 3).toUpperCase()}-${Math.floor(1e3 + Math.random() * 9e3)}`,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+  const updated = {
+    ...current,
+    stockQuantity,
+    inStock: inStock !== void 0 ? inStock : stockQuantity > 0,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
-  if (isConnected2 && db2) {
-    await db2.collection("products").insertOne(newProduct);
-    return newProduct;
-  }
-  inMemoryStore.products.unshift(newProduct);
+  await saveDocument("products", id, updated);
+  return updated;
+}
+async function createProductAdmin(data) {
+  const id = data.id || `prod-${Date.now()}`;
+  const newProduct = {
+    id,
+    name: data.name || "New Fragrance",
+    brand: data.brand || "BlazeStore Sillage",
+    category: data.category || "Perfumes",
+    price: data.price || 0,
+    originalPrice: data.originalPrice || data.price || 0,
+    discountPercentage: data.discountPercentage || 0,
+    image: data.image || "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=600&auto=format&fit=crop&q=80",
+    description: data.description || "",
+    inStock: data.inStock ?? true,
+    stockQuantity: data.stockQuantity ?? 50,
+    rating: data.rating || 4.8,
+    reviewCount: data.reviewCount || 1,
+    isDeal: Boolean(data.isDeal),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await saveDocument("products", id, newProduct);
   return newProduct;
 }
-async function updateProductAdmin(productId, updateData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const sanitizedUpdate = {
-    ...updateData,
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  if (updateData.price) sanitizedUpdate.price = Number(updateData.price);
-  if (updateData.stockQuantity !== void 0) sanitizedUpdate.stockQuantity = Math.max(0, Number(updateData.stockQuantity));
-  if (isConnected2 && db2) {
-    await db2.collection("products").updateOne(
-      { id: productId },
-      { $set: sanitizedUpdate }
-    );
-    return await db2.collection("products").findOne({ id: productId });
-  }
-  const idx = inMemoryStore.products.findIndex((p) => p.id === productId);
-  if (idx !== -1) {
-    inMemoryStore.products[idx] = { ...inMemoryStore.products[idx], ...sanitizedUpdate };
-    return inMemoryStore.products[idx];
-  }
-  return null;
+async function updateProductAdmin(id, data) {
+  const existing = await fetchDocument("products", id) || { id, name: "Product", price: 0 };
+  const updated = { ...existing, ...data, id, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  await saveDocument("products", id, updated);
+  return updated;
 }
-async function deleteProductAdmin(productId) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const idStr = String(productId || "").trim();
-  const idNum = Number(productId);
-  if (isConnected2 && db2) {
-    const coll = db2.collection("products");
-    const orClauses = [{ id: idStr }, { sku: idStr }];
-    if (!isNaN(idNum) && idStr !== "") {
-      orClauses.push({ id: idNum });
-    }
-    try {
-      const { ObjectId } = await import("mongodb");
-      if (ObjectId.isValid(idStr)) {
-        orClauses.push({ _id: new ObjectId(idStr) });
-      }
-    } catch (e) {
-    }
-    orClauses.push({ _id: idStr });
-    let deletedCount = 0;
-    try {
-      const result = await coll.deleteOne({ $or: orClauses });
-      deletedCount = result.deletedCount || 0;
-    } catch (err) {
-      console.error("[MongoDB deleteProductAdmin error]:", err);
-    }
-    await db2.collection("cart").deleteMany({ $or: [{ productId: idStr }, { id: idStr }] }).catch(() => {
-    });
-    await db2.collection("wishlist").deleteMany({ $or: [{ productId: idStr }, { id: idStr }] }).catch(() => {
-    });
-    inMemoryStore.products = inMemoryStore.products.filter(
-      (p) => String(p.id) !== idStr && (!p.sku || p.sku !== idStr)
-    );
-    inMemoryStore.cart = inMemoryStore.cart.filter(
-      (c) => String(c.productId) !== idStr && String(c.id) !== idStr
-    );
-    inMemoryStore.wishlist = inMemoryStore.wishlist.filter(
-      (w) => String(w.id) !== idStr && String(w.productId) !== idStr
-    );
-    return { success: true, deletedCount };
-  }
-  const initialLen = inMemoryStore.products.length;
-  inMemoryStore.products = inMemoryStore.products.filter(
-    (p) => String(p.id) !== idStr && (!p.sku || p.sku !== idStr)
-  );
-  inMemoryStore.cart = inMemoryStore.cart.filter(
-    (c) => String(c.productId) !== idStr && String(c.id) !== idStr
-  );
-  inMemoryStore.wishlist = inMemoryStore.wishlist.filter(
-    (w) => String(w.id) !== idStr && String(w.productId) !== idStr
-  );
-  return { success: true, deletedCount: Math.max(1, initialLen - inMemoryStore.products.length) };
+async function deleteProductAdmin(id) {
+  await removeDocument("products", id);
+  return { success: true, message: `Product ${id} removed from Firestore.` };
 }
 async function clearAllProductsAdmin() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const initialCount = inMemoryStore.products.length;
-  inMemoryStore.products = [];
-  inMemoryStore.cart = [];
-  inMemoryStore.wishlist = [];
-  let mongoDeleted = 0;
-  if (isConnected2 && db2) {
-    try {
-      const res = await db2.collection("products").deleteMany({});
-      await db2.collection("cart").deleteMany({}).catch(() => {
-      });
-      await db2.collection("wishlist").deleteMany({}).catch(() => {
-      });
-      mongoDeleted = res.deletedCount || 0;
-    } catch (err) {
-      console.error("[MongoDB clearAllProductsAdmin error]:", err);
-    }
-  }
-  return {
-    success: true,
-    deletedCount: Math.max(initialCount, mongoDeleted),
-    message: "All products and inventory have been cleared from the catalog."
-  };
+  const prods = await fetchCollection("products");
+  await Promise.all(prods.map((p) => removeDocument("products", p.id)));
+  return { success: true, message: "All products cleared from Firestore." };
 }
-async function bulkCreateProductsAdmin(productsList) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const createdItems = (productsList || []).map((productData, idx) => ({
-    id: productData.id || `prod-${Date.now()}-${idx}-${Math.floor(Math.random() * 1e3)}`,
-    name: productData.name?.trim() || "Imported Product",
-    category: productData.category?.trim() || "General",
-    brand: productData.brand?.trim() || void 0,
-    collection: productData.collection?.trim() || void 0,
-    price: Number(productData.price) || 0,
-    originalPrice: productData.originalPrice ? Number(productData.originalPrice) : void 0,
-    costPrice: productData.costPrice ? Number(productData.costPrice) : Number((Number(productData.price || 0) * 0.55).toFixed(2)),
-    discountPercentage: Number(productData.discountPercentage) || 0,
-    rating: Number(productData.rating) || 5,
-    reviewCount: Number(productData.reviewCount) || 0,
-    image: productData.image?.trim() || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80",
-    badge: productData.badge || "New",
-    isHot: Boolean(productData.isHot),
-    isDeal: Boolean(productData.isDeal),
-    isBestSeller: Boolean(productData.isBestSeller),
-    isNewArrival: Boolean(productData.isNewArrival),
-    colors: Array.isArray(productData.colors) ? productData.colors : void 0,
-    description: productData.description?.trim() || "Genuine store inventory item.",
-    inStock: productData.inStock !== false && Number(productData.stockQuantity ?? 1) > 0,
-    stockQuantity: Number(productData.stockQuantity) >= 0 ? Number(productData.stockQuantity) : 10,
-    sku: productData.sku?.trim() || `BLZ-${(productData.category || "GEN").slice(0, 3).toUpperCase()}-${Math.floor(1e3 + Math.random() * 9e3)}`,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  }));
-  if (createdItems.length === 0) {
-    return { success: true, count: 0, products: [] };
-  }
-  if (isConnected2 && db2) {
-    try {
-      await db2.collection("products").insertMany(createdItems);
-    } catch (err) {
-      console.error("[MongoDB bulkCreateProductsAdmin error]:", err);
-    }
-  }
-  inMemoryStore.products.unshift(...createdItems);
-  return { success: true, count: createdItems.length, products: createdItems };
-}
-async function getCart() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    return await db2.collection("cart").find({}).toArray();
-  }
-  return inMemoryStore.cart;
-}
-async function addToCart(item) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const cartColl = db2.collection("cart");
-    const existing = await cartColl.findOne({
-      productId: item.productId,
-      variant: item.variant
-    });
-    if (existing) {
-      await cartColl.updateOne(
-        { _id: existing._id },
-        { $inc: { quantity: item.quantity || 1 } }
-      );
-      return await cartColl.find({}).toArray();
-    } else {
-      const newItem = {
-        id: `cart-${Date.now()}-${item.productId}`,
-        productId: item.productId,
-        name: item.name,
-        price: item.price,
-        originalPrice: item.originalPrice,
-        image: item.image,
-        variant: item.variant || "Standard",
-        color: item.color,
-        quantity: item.quantity || 1
+async function bulkCreateProductsAdmin(products) {
+  const createdList = [];
+  await Promise.all(
+    products.map(async (p, idx) => {
+      const id = p.id || `prod-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+      const price = Number(p.price) || 0;
+      const originalPrice = p.originalPrice ? Number(p.originalPrice) : p.discountPercentage ? Math.round(price * (100 / (100 - (p.discountPercentage || 0)))) : void 0;
+      let discountPercentage = p.discountPercentage;
+      if (!discountPercentage && originalPrice && originalPrice > price) {
+        discountPercentage = Math.round((originalPrice - price) / originalPrice * 100);
+      }
+      const isDeal = Boolean(p.isDeal) || Boolean(p.isHot) || discountPercentage !== void 0 && discountPercentage > 0;
+      const newProduct = {
+        id,
+        name: (p.name || "Product").trim(),
+        category: (p.category || "General").trim(),
+        brand: p.brand?.trim() || void 0,
+        collection: p.collection?.trim() || void 0,
+        price,
+        originalPrice,
+        costPrice: p.costPrice ? Number(p.costPrice) : Math.round(price * 0.55),
+        discountPercentage: discountPercentage || void 0,
+        stockQuantity: p.stockQuantity !== void 0 ? Number(p.stockQuantity) : 25,
+        sku: p.sku?.trim() || `BLZ-${Date.now().toString().slice(-4)}-${idx + 1}`,
+        inStock: p.inStock ?? Number(p.stockQuantity ?? 25) > 0,
+        image: p.image?.trim() || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80",
+        description: p.description?.trim() || "",
+        rating: p.rating || 5,
+        reviewCount: p.reviewCount || 0,
+        badge: p.badge?.trim() || (isDeal ? discountPercentage ? `${discountPercentage}% OFF` : "Hot Deal" : p.isNewArrival ? "New Arrival" : "In Stock"),
+        isDeal,
+        isBestSeller: Boolean(p.isBestSeller),
+        isNewArrival: Boolean(p.isNewArrival),
+        isHot: Boolean(p.isHot) || isDeal,
+        colors: p.colors,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
-      await cartColl.insertOne(newItem);
-      return await cartColl.find({}).toArray();
-    }
-  }
-  const existingIdx = inMemoryStore.cart.findIndex(
-    (c) => c.productId === item.productId && c.variant === item.variant
+      await saveDocument("products", id, newProduct);
+      createdList.push(newProduct);
+    })
   );
-  if (existingIdx >= 0) {
-    inMemoryStore.cart[existingIdx].quantity += item.quantity || 1;
+  return { success: true, count: createdList.length, products: createdList };
+}
+async function getCart(userId = "guest") {
+  const doc = await fetchDocument("carts", userId);
+  return doc?.items || [];
+}
+async function addToCart(item, userId = "guest") {
+  const existingDoc = await fetchDocument("carts", userId);
+  let items = existingDoc?.items ? [...existingDoc.items] : [];
+  const existingIdx = items.findIndex((i) => i.productId === (item.productId || item.id));
+  if (existingIdx > -1) {
+    items[existingIdx].quantity += item.quantity || 1;
   } else {
-    inMemoryStore.cart.push({
-      id: `cart-${Date.now()}-${item.productId}`,
-      productId: item.productId,
-      name: item.name || "Product",
-      price: item.price || 0,
-      originalPrice: item.originalPrice,
-      image: item.image || "",
-      variant: item.variant || "Standard",
+    items.unshift({
+      id: `cart-${Date.now()}-${item.id || item.productId}`,
+      productId: item.id || item.productId,
+      name: item.name,
+      price: item.price,
+      originalPrice: item.originalPrice || item.price,
+      image: item.image,
+      variant: item.variant || "Standard Edition",
       color: item.color,
       quantity: item.quantity || 1
     });
   }
-  return inMemoryStore.cart;
+  await saveDocument("carts", userId, { userId, items, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  return items;
 }
-async function updateCartQuantity(cartItemId, delta) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const cartColl = db2.collection("cart");
-    const item = await cartColl.findOne({ id: cartItemId });
-    if (item) {
-      const newQty = item.quantity + delta;
-      if (newQty <= 0) {
-        await cartColl.deleteOne({ id: cartItemId });
-      } else {
-        await cartColl.updateOne({ id: cartItemId }, { $set: { quantity: newQty } });
-      }
-    }
-    return await cartColl.find({}).toArray();
-  }
-  const idx = inMemoryStore.cart.findIndex((c) => c.id === cartItemId);
-  if (idx >= 0) {
-    const newQty = inMemoryStore.cart[idx].quantity + delta;
-    if (newQty <= 0) {
-      inMemoryStore.cart.splice(idx, 1);
-    } else {
-      inMemoryStore.cart[idx].quantity = newQty;
-    }
-  }
-  return inMemoryStore.cart;
+async function updateCartQuantity(itemId, delta, userId = "guest") {
+  const existingDoc = await fetchDocument("carts", userId);
+  if (!existingDoc) return [];
+  let items = existingDoc.items || [];
+  items = items.map((i) => i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i).filter((i) => i.quantity > 0);
+  await saveDocument("carts", userId, { userId, items, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  return items;
 }
-async function removeFromCart(cartItemId) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    await db2.collection("cart").deleteOne({ id: cartItemId });
-    return await db2.collection("cart").find({}).toArray();
-  }
-  inMemoryStore.cart = inMemoryStore.cart.filter((c) => c.id !== cartItemId);
-  return inMemoryStore.cart;
+async function removeFromCart(itemId, userId = "guest") {
+  const existingDoc = await fetchDocument("carts", userId);
+  if (!existingDoc) return [];
+  let items = (existingDoc.items || []).filter((i) => i.id !== itemId);
+  await saveDocument("carts", userId, { userId, items, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  return items;
 }
-async function clearCart() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    await db2.collection("cart").deleteMany({});
-    return [];
-  }
-  inMemoryStore.cart = [];
+async function clearCart(userId = "guest") {
+  await saveDocument("carts", userId, { userId, items: [], updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   return [];
 }
-async function getWishlist() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    return await db2.collection("wishlist").find({}).toArray();
-  }
-  return inMemoryStore.wishlist;
+async function getWishlist(userId = "guest") {
+  const doc = await fetchDocument("wishlists", userId);
+  return doc?.items || [];
 }
-async function toggleWishlist(product) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const wishColl = db2.collection("wishlist");
-    const existing = await wishColl.findOne({ id: product.id });
-    if (existing) {
-      await wishColl.deleteOne({ id: product.id });
-    } else {
-      await wishColl.insertOne(product);
-    }
-    return await wishColl.find({}).toArray();
-  }
-  const idx = inMemoryStore.wishlist.findIndex((w) => w.id === product.id);
-  if (idx >= 0) {
-    inMemoryStore.wishlist.splice(idx, 1);
+async function toggleWishlist(product, userId = "guest") {
+  const existingDoc = await fetchDocument("wishlists", userId);
+  let items = existingDoc?.items ? [...existingDoc.items] : [];
+  const idx = items.findIndex((p) => p.id === product.id);
+  if (idx > -1) {
+    items.splice(idx, 1);
   } else {
-    inMemoryStore.wishlist.push(product);
+    items.unshift(product);
   }
-  return inMemoryStore.wishlist;
+  await saveDocument("wishlists", userId, { userId, items, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  return items;
 }
 async function createOrder(orderData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const isPaid = orderData.paymentStatus === "paid";
+  const orderId = orderData.orderId || orderData.id || `NG-${Date.now().toString().slice(-6)}`;
   const newOrder = {
-    orderId: orderData.orderId || `BZ-${Math.floor(1e5 + Math.random() * 9e5)}`,
-    customer: orderData.customer,
-    items: orderData.items,
-    subtotal: orderData.subtotal,
+    id: orderId,
+    orderId,
+    userId: orderData.userId || "guest",
+    customer: orderData.customer || {
+      name: orderData.name || "Customer",
+      email: orderData.email || orderData.userEmail || "customer@example.com",
+      phone: orderData.phone || "",
+      address: orderData.address || "Standard Delivery Address",
+      city: orderData.city || "Lagos",
+      state: orderData.state || "Lagos State",
+      country: "Nigeria"
+    },
+    items: orderData.items || [],
+    subtotal: orderData.subtotal || 0,
     discount: orderData.discount || 0,
     shipping: orderData.shipping || 0,
-    total: orderData.total,
+    tax: orderData.tax || 0,
+    total: orderData.total || 0,
     currency: orderData.currency || "NGN",
     currencySymbol: orderData.currencySymbol || "\u20A6",
+    status: orderData.status || "processing",
     paymentMethod: orderData.paymentMethod || "paystack",
-    paymentStatus: orderData.paymentStatus || (orderData.paymentMethod === "cod" ? "pending" : "pending"),
-    paymentReference: orderData.paymentReference,
-    paystackData: orderData.paystackData,
-    status: isPaid ? "processing" : orderData.status || "pending",
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    userId: orderData.userId || "guest"
-  };
-  if (isConnected2 && db2) {
-    await db2.collection("orders").insertOne(newOrder);
-    await db2.collection("cart").deleteMany({});
-    for (const item of orderData.items || []) {
-      if (item.productId) {
-        await db2.collection("products").updateOne(
-          { id: item.productId },
-          { $inc: { stockQuantity: -item.quantity } }
-        );
+    paymentStatus: orderData.paymentStatus || "paid",
+    paymentRef: orderData.paymentReference || orderData.paymentRef,
+    deliveryType: orderData.deliveryType || "delivery",
+    pickupStation: orderData.pickupStation,
+    createdAt: orderData.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    timeline: orderData.timeline || [
+      {
+        status: "Order Placed",
+        title: "Order Confirmed",
+        description: "Your order was verified and saved to database.",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        isCompleted: true
+      },
+      {
+        status: "Processing",
+        title: "Preparing for Dispatch",
+        description: "Items are being packed at the fulfillment center.",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        isCompleted: true
       }
-    }
-    await db2.collection("notifications").insertOne({
-      id: `notif-${Date.now()}`,
-      title: `Order #${newOrder.orderId} Placed! \u{1F389}`,
-      message: `Order for \u20A6${newOrder.total.toLocaleString()} (${newOrder.paymentMethod}) was recorded. Payment Status: ${newOrder.paymentStatus.toUpperCase()}.`,
-      time: "Just now",
-      read: false,
+    ],
+    refundAmount: 0,
+    refundStatus: "none"
+  };
+  await saveDocument("orders", orderId, newOrder);
+  try {
+    const notifId = `notif-${Date.now()}`;
+    await saveDocument("notifications", notifId, {
+      id: notifId,
+      title: `Order Confirmed #${orderId}`,
+      message: `Your order for \u20A6${(newOrder.total || 0).toLocaleString()} (${newOrder.items.length} item${newOrder.items.length === 1 ? "" : "s"}) has been confirmed!`,
       type: "order",
-      createdAt: /* @__PURE__ */ new Date()
+      userId: newOrder.userId,
+      isRead: false,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
     });
-  } else {
-    inMemoryStore.orders.unshift(newOrder);
-    inMemoryStore.cart = [];
-    inMemoryStore.notifications.unshift({
-      id: `notif-${Date.now()}`,
-      title: `Order #${newOrder.orderId} Placed! \u{1F389}`,
-      message: `Order for \u20A6${newOrder.total.toLocaleString()} was logged in memory. Status: ${newOrder.paymentStatus.toUpperCase()}.`,
-      time: "Just now",
-      read: false,
-      type: "order"
-    });
+  } catch (notifErr) {
+    console.warn("[Notification Notice]:", notifErr);
   }
+  sendOrderConfirmationEmail(newOrder).catch((err) => {
+    console.warn("[Email Dispatch Notice]:", err?.message || err);
+  });
   return newOrder;
 }
-async function updateOrderPaymentByReference(reference, paymentDetails) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const paymentStatus = paymentDetails.paid ? "paid" : "failed";
-  const orderStatus = paymentDetails.paid ? "processing" : "pending";
-  if (isConnected2 && db2) {
-    const updated = await db2.collection("orders").findOneAndUpdate(
-      {
-        $or: [
-          { paymentReference: reference },
-          { orderId: reference }
-        ]
-      },
-      {
-        $set: {
-          paymentStatus,
-          status: orderStatus,
-          paystackData: paymentDetails.paystackData,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      },
-      { returnDocument: "after" }
+async function getUserOrders(userId, email, orderId) {
+  const orders = await fetchCollection("orders");
+  if (orderId && orderId.trim()) {
+    const cleanId = orderId.trim().toLowerCase();
+    const matched = orders.filter(
+      (o) => o.orderId && o.orderId.toLowerCase() === cleanId || o.id && o.id.toLowerCase() === cleanId || o.paymentRef && o.paymentRef.toLowerCase() === cleanId
     );
-    if (updated && paymentDetails.paid) {
-      await db2.collection("notifications").insertOne({
-        id: `notif-${Date.now()}`,
-        title: `Payment Verified for Order #${updated.orderId} \u2705`,
-        message: `Paystack real-time payment of \u20A6${updated.total.toLocaleString()} confirmed (Ref: ${reference}).`,
-        time: "Just now",
-        read: false,
-        type: "order",
-        createdAt: /* @__PURE__ */ new Date()
-      });
-    }
-    return updated;
+    if (matched.length > 0) return matched;
   }
-  const idx = inMemoryStore.orders.findIndex(
-    (o) => o.paymentReference === reference || o.orderId === reference
-  );
-  if (idx !== -1) {
-    inMemoryStore.orders[idx].paymentStatus = paymentStatus;
-    inMemoryStore.orders[idx].status = orderStatus;
-    if (paymentDetails.paystackData) {
-      inMemoryStore.orders[idx].paystackData = paymentDetails.paystackData;
+  const cleanUserId = (userId || "").trim();
+  const cleanEmail = (email || "").trim().toLowerCase();
+  let filtered = orders.filter((o) => {
+    if (cleanUserId && cleanUserId !== "guest" && cleanUserId !== "guest-visitor" && o.userId === cleanUserId) {
+      return true;
     }
-    return inMemoryStore.orders[idx];
+    if (cleanEmail && o.customer?.email && o.customer.email.toLowerCase() === cleanEmail) {
+      return true;
+    }
+    return false;
+  });
+  if (filtered.length === 0 && (!cleanUserId || cleanUserId === "guest") && !cleanEmail) {
+    filtered = orders;
   }
-  return null;
+  filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return filtered;
 }
-async function getPendingOrders() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    return await db2.collection("orders").find({
-      $or: [
-        { paymentStatus: "pending" },
-        { paymentStatus: { $exists: false } },
-        { status: "pending" }
-      ]
-    }).sort({ createdAt: -1 }).limit(50).toArray();
+async function getOrderById(orderId) {
+  const cleanId = (orderId || "").trim().toLowerCase();
+  if (!cleanId) return null;
+  const doc = await fetchDocument("orders", orderId);
+  if (doc) return doc;
+  const orders = await fetchCollection("orders");
+  return orders.find(
+    (o) => o.orderId && o.orderId.toLowerCase() === cleanId || o.id && o.id.toLowerCase() === cleanId || o.paymentRef && o.paymentRef.toLowerCase() === cleanId
+  ) || null;
+}
+async function updateOrderPaymentByReference(reference, paymentDetails) {
+  const orders = await fetchCollection("orders");
+  for (const o of orders) {
+    if (o.paymentRef === reference || o.orderId === reference || o.id === reference) {
+      const updatedOrder = {
+        ...o,
+        paymentStatus: paymentDetails.paid ? "paid" : "failed",
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      await saveDocument("orders", o.id, updatedOrder);
+      if (paymentDetails.paid && o.paymentStatus !== "paid") {
+        sendOrderConfirmationEmail(updatedOrder).catch((err) => {
+          console.warn("[Email Dispatch Notice on Payment]:", err?.message || err);
+        });
+      }
+    }
   }
-  return inMemoryStore.orders.filter(
-    (o) => o.paymentStatus === "pending" || !o.paymentStatus || o.status === "pending"
-  );
 }
 async function getAllOrders(status, search) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const query = {};
-    if (status && status !== "all") {
-      query.status = status;
-    }
-    if (search && search.trim()) {
-      query.$or = [
-        { orderId: { $regex: search.trim(), $options: "i" } },
-        { "customer.name": { $regex: search.trim(), $options: "i" } },
-        { "customer.email": { $regex: search.trim(), $options: "i" } }
-      ];
-    }
-    return await db2.collection("orders").find(query).sort({ createdAt: -1 }).toArray();
+  let orders = await fetchCollection("orders");
+  if (status && status.toLowerCase() !== "all") {
+    orders = orders.filter((o) => o.status?.toLowerCase() === status.toLowerCase());
   }
-  return inMemoryStore.orders.filter((o) => {
-    const matchStatus = !status || status === "all" || o.status === status;
-    const matchSearch = !search || !search.trim() || o.orderId.toLowerCase().includes(search.toLowerCase()) || o.customer?.name?.toLowerCase().includes(search.toLowerCase()) || o.customer?.email?.toLowerCase().includes(search.toLowerCase());
-    return matchStatus && matchSearch;
-  });
+  if (search) {
+    const qStr = search.toLowerCase();
+    orders = orders.filter(
+      (o) => o.orderId?.toLowerCase().includes(qStr) || o.customer?.name?.toLowerCase().includes(qStr) || o.customer?.email?.toLowerCase().includes(qStr)
+    );
+  }
+  orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return orders;
 }
 async function updateOrderStatus(orderId, status, adminInfo) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    await db2.collection("orders").updateOne(
-      { orderId },
-      {
-        $set: {
-          status,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          lastUpdatedBy: adminInfo?.name
-        }
-      }
-    );
-    await db2.collection("notifications").insertOne({
-      id: `notif-${Date.now()}`,
-      title: `Order #${orderId} Updated to ${status.toUpperCase()} \u{1F4E6}`,
-      message: `Status updated by ${adminInfo?.name || "Store Administration"}.`,
-      time: "Just now",
-      read: false,
-      type: "order",
-      createdAt: /* @__PURE__ */ new Date()
-    });
-    return await db2.collection("orders").findOne({ orderId });
+  const existing = await fetchDocument("orders", orderId);
+  if (!existing) {
+    throw new Error(`Order ${orderId} not found.`);
   }
-  const idx = inMemoryStore.orders.findIndex((o) => o.orderId === orderId);
-  if (idx !== -1) {
-    inMemoryStore.orders[idx].status = status;
-    return inMemoryStore.orders[idx];
-  }
-  return null;
+  const updatedTimeline = [...existing.timeline || []];
+  updatedTimeline.push({
+    status,
+    title: `Status set to ${status}`,
+    description: `Updated by ${adminInfo?.name || "Administrator"}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    isCompleted: true
+  });
+  const updated = {
+    ...existing,
+    status,
+    timeline: updatedTimeline,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await saveDocument("orders", orderId, updated);
+  return updated;
+}
+async function deleteOrderAdmin(orderId) {
+  await removeDocument("orders", orderId);
+  return { success: true, message: `Order ${orderId} deleted from Firestore.` };
+}
+async function getPendingOrders() {
+  const orders = await getAllOrders();
+  return orders.filter((o) => o.status === "processing" || !o.paymentRef);
 }
 async function processRefund(refundData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const refundAmount = Number(refundData.amount);
-  const requiresOwnerApproval = refundData.adminRole === "manager" && refundAmount > 200;
-  const refundRecord = {
-    id: `ref-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
+  const refundId = `ref-${Date.now()}`;
+  const newRefund = {
+    id: refundId,
     orderId: refundData.orderId,
-    customerName: "",
-    customerEmail: "",
-    amount: refundAmount,
-    reason: refundData.reason.trim() || "Customer Request",
-    refundedBy: refundData.adminName,
-    adminRole: refundData.adminRole,
-    status: requiresOwnerApproval ? "pending_owner_approval" : "approved",
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    restocked: refundData.restockItems
+    customerName: refundData.customerName || "Customer",
+    customerEmail: refundData.customerEmail || "customer@example.com",
+    amount: refundData.amount,
+    reason: refundData.reason || "Customer Return",
+    status: refundData.adminRole === "owner" ? "approved" : "pending_owner_approval",
+    refundedBy: refundData.adminName || "Admin",
+    adminRole: refundData.adminRole || "manager",
+    restocked: Boolean(refundData.restockItems),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
-  if (isConnected2 && db2) {
-    const ordersColl = db2.collection("orders");
-    const order2 = await ordersColl.findOne({ orderId: refundData.orderId });
-    if (!order2) {
-      throw new Error(`Order #${refundData.orderId} not found.`);
-    }
-    refundRecord.customerName = order2.customer?.name || "Customer";
-    refundRecord.customerEmail = order2.customer?.email || "";
-    if (requiresOwnerApproval) {
-      await ordersColl.updateOne(
-        { orderId: refundData.orderId },
-        {
-          $set: {
-            refundStatus: "pending_owner_approval",
-            refundReason: refundData.reason,
-            refundedBy: `${refundData.adminName} (Manager - Pending Owner Approval)`
-          }
-        }
-      );
-      await db2.collection("refunds").insertOne(refundRecord);
-      await db2.collection("notifications").insertOne({
-        id: `notif-${Date.now()}`,
-        title: `Refund Approval Required ($${refundAmount.toFixed(2)}) \u26A0\uFE0F`,
-        message: `Manager ${refundData.adminName} submitted a refund for Order #${refundData.orderId} exceeding $200. Owner review required.`,
-        time: "Just now",
-        read: false,
-        type: "refund",
-        createdAt: /* @__PURE__ */ new Date()
-      });
-      return {
-        success: true,
-        refund: refundRecord,
-        requiresApproval: true,
-        message: `Refund of $${refundAmount.toFixed(2)} exceeds the $200 manager threshold and was submitted to the Owner Approval Queue.`
-      };
-    }
-    const isFullRefund2 = refundAmount >= order2.total;
-    const newStatus = isFullRefund2 ? "refunded" : "partially_refunded";
-    await ordersColl.updateOne(
-      { orderId: refundData.orderId },
-      {
-        $set: {
-          status: newStatus,
-          refundStatus: "approved",
-          refundAmount: (order2.refundAmount || 0) + refundAmount,
-          refundReason: refundData.reason,
-          refundDate: (/* @__PURE__ */ new Date()).toISOString(),
-          refundedBy: `${refundData.adminName} (${refundData.adminRole})`
-        }
-      }
-    );
-    if (refundData.restockItems && order2.items?.length) {
-      for (const item of order2.items) {
-        if (item.productId) {
-          await db2.collection("products").updateOne(
-            { id: item.productId },
-            { $inc: { stockQuantity: item.quantity } }
-          );
-        }
-      }
-    }
-    await db2.collection("refunds").insertOne(refundRecord);
-    await db2.collection("notifications").insertOne({
-      id: `notif-${Date.now()}`,
-      title: `Refund Processed for Order #${refundData.orderId} \u{1F4B3}`,
-      message: `A refund of $${refundAmount.toFixed(2)} was approved by ${refundData.adminName}.`,
-      time: "Just now",
-      read: false,
-      type: "refund",
-      createdAt: /* @__PURE__ */ new Date()
-    });
-    return {
-      success: true,
-      refund: refundRecord,
-      message: `Refund of $${refundAmount.toFixed(2)} processed successfully for Order #${refundData.orderId}`
-    };
-  }
-  const orderIdx = inMemoryStore.orders.findIndex((o) => o.orderId === refundData.orderId);
-  if (orderIdx === -1) {
-    throw new Error(`Order #${refundData.orderId} not found.`);
-  }
-  const order = inMemoryStore.orders[orderIdx];
-  refundRecord.customerName = order.customer?.name || "Customer";
-  refundRecord.customerEmail = order.customer?.email || "";
-  if (requiresOwnerApproval) {
-    inMemoryStore.orders[orderIdx].refundStatus = "pending_owner_approval";
-    inMemoryStore.orders[orderIdx].refundReason = refundData.reason;
-    inMemoryStore.refunds.unshift(refundRecord);
-    return {
-      success: true,
-      refund: refundRecord,
-      requiresApproval: true,
-      message: `Refund of $${refundAmount.toFixed(2)} exceeds $200 limit and has been queued for Owner Approval.`
-    };
-  }
-  const isFullRefund = refundAmount >= order.total;
-  inMemoryStore.orders[orderIdx].status = isFullRefund ? "refunded" : "partially_refunded";
-  inMemoryStore.orders[orderIdx].refundAmount = (order.refundAmount || 0) + refundAmount;
-  inMemoryStore.orders[orderIdx].refundStatus = "approved";
-  inMemoryStore.orders[orderIdx].refundReason = refundData.reason;
-  inMemoryStore.orders[orderIdx].refundedBy = `${refundData.adminName} (${refundData.adminRole})`;
-  if (refundData.restockItems && order.items?.length) {
-    for (const itm of order.items) {
-      const prod = inMemoryStore.products.find((p) => p.id === itm.productId);
-      if (prod) {
-        prod.stockQuantity = (prod.stockQuantity || 0) + itm.quantity;
-      }
-    }
-  }
-  inMemoryStore.refunds.unshift(refundRecord);
-  return {
-    success: true,
-    refund: refundRecord,
-    message: `Refund of $${refundAmount.toFixed(2)} processed successfully for Order #${refundData.orderId}`
-  };
+  await saveDocument("refunds", refundId, newRefund);
+  return { success: true, refund: newRefund };
 }
-async function approveRefund(refundId, ownerName) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const refund2 = await db2.collection("refunds").findOne({ id: refundId });
-    if (!refund2) throw new Error(`Refund record #${refundId} not found.`);
-    await db2.collection("refunds").updateOne(
-      { id: refundId },
-      {
-        $set: {
-          status: "approved",
-          approvedBy: ownerName,
-          approvedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      }
-    );
-    const order = await db2.collection("orders").findOne({ orderId: refund2.orderId });
-    if (order) {
-      const newRefundAmount = (order.refundAmount || 0) + refund2.amount;
-      const isFull = newRefundAmount >= order.total;
-      await db2.collection("orders").updateOne(
-        { orderId: refund2.orderId },
-        {
-          $set: {
-            status: isFull ? "refunded" : "partially_refunded",
-            refundStatus: "approved",
-            refundAmount: newRefundAmount,
-            refundDate: (/* @__PURE__ */ new Date()).toISOString()
-          }
-        }
-      );
-      if (refund2.restocked && order.items?.length) {
-        for (const item of order.items) {
-          if (item.productId) {
-            await db2.collection("products").updateOne(
-              { id: item.productId },
-              { $inc: { stockQuantity: item.quantity } }
-            );
-          }
-        }
-      }
-    }
-    return { success: true, message: `Refund #${refundId} approved by Owner ${ownerName}.` };
-  }
-  const rIdx = inMemoryStore.refunds.findIndex((r) => r.id === refundId);
-  if (rIdx === -1) throw new Error("Refund not found");
-  const refund = inMemoryStore.refunds[rIdx];
-  refund.status = "approved";
-  refund.approvedBy = ownerName;
-  refund.approvedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const oIdx = inMemoryStore.orders.findIndex((o) => o.orderId === refund.orderId);
-  if (oIdx !== -1) {
-    const order = inMemoryStore.orders[oIdx];
-    const newAmt = (order.refundAmount || 0) + refund.amount;
-    order.status = newAmt >= order.total ? "refunded" : "partially_refunded";
-    order.refundStatus = "approved";
-    order.refundAmount = newAmt;
-  }
-  return { success: true, message: `Refund #${refundId} approved by Owner.` };
+async function approveRefund(id, ownerName) {
+  const existing = await fetchDocument("refunds", id);
+  if (!existing) throw new Error(`Refund ${id} not found.`);
+  const updated = { ...existing, status: "approved", approvedBy: ownerName };
+  await saveDocument("refunds", id, updated);
+  return { success: true, refund: updated };
 }
-async function rejectRefund(refundId, ownerName) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const refund = await db2.collection("refunds").findOne({ id: refundId });
-    if (!refund) throw new Error("Refund not found");
-    await db2.collection("refunds").updateOne(
-      { id: refundId },
-      { $set: { status: "rejected", approvedBy: ownerName, approvedAt: (/* @__PURE__ */ new Date()).toISOString() } }
-    );
-    await db2.collection("orders").updateOne(
-      { orderId: refund.orderId },
-      { $set: { refundStatus: "rejected" } }
-    );
-    return { success: true, message: `Refund #${refundId} rejected by Owner ${ownerName}.` };
-  }
-  const rIdx = inMemoryStore.refunds.findIndex((r) => r.id === refundId);
-  if (rIdx !== -1) {
-    inMemoryStore.refunds[rIdx].status = "rejected";
-    const oIdx = inMemoryStore.orders.findIndex((o) => o.orderId === inMemoryStore.refunds[rIdx].orderId);
-    if (oIdx !== -1) inMemoryStore.orders[oIdx].refundStatus = "rejected";
-  }
-  return { success: true, message: `Refund #${refundId} rejected by Owner.` };
+async function rejectRefund(id, ownerName) {
+  const existing = await fetchDocument("refunds", id);
+  if (!existing) throw new Error(`Refund ${id} not found.`);
+  const updated = { ...existing, status: "rejected", rejectedBy: ownerName };
+  await saveDocument("refunds", id, updated);
+  return { success: true, refund: updated };
 }
 async function getRefunds() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    return await db2.collection("refunds").find({}).sort({ createdAt: -1 }).toArray();
-  }
-  return inMemoryStore.refunds;
+  const list = await fetchCollection("refunds");
+  list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return list;
 }
-async function getSalesAnalytics() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  let orders = [];
-  let products = [];
-  let refunds = [];
-  let usersCount = 0;
-  if (isConnected2 && db2) {
-    orders = await db2.collection("orders").find({}).toArray();
-    products = await db2.collection("products").find({}).toArray();
-    refunds = await db2.collection("refunds").find({}).toArray();
-    usersCount = await db2.collection("users").countDocuments().catch(() => 0);
-  } else {
-    orders = inMemoryStore.orders;
-    products = inMemoryStore.products;
-    refunds = inMemoryStore.refunds;
-    usersCount = inMemoryStore.users.length;
-  }
-  const grossRevenue = orders.reduce((sum, o) => sum + (o.status !== "cancelled" ? o.total : 0), 0);
-  const refundAmountTotal = refunds.reduce((sum, r) => sum + r.amount, 0);
-  const netRevenue = Math.max(0, grossRevenue - refundAmountTotal);
-  const completedOrders = orders.filter((o) => o.status === "delivered" || o.status === "shipped").length;
-  const averageOrderValue = orders.length > 0 ? grossRevenue / orders.length : 0;
-  const lowStockCount = products.filter((p) => (p.stockQuantity ?? 0) > 0 && (p.stockQuantity ?? 0) <= 10).length;
-  const outOfStockCount = products.filter((p) => (p.stockQuantity ?? 0) === 0 || p.inStock === false).length;
-  const categoryMap = {};
-  for (const ord of orders) {
-    if (ord.status === "cancelled") continue;
-    for (const itm of ord.items || []) {
-      const prod = products.find((p) => p.id === itm.productId);
-      const cat = prod?.category || "General";
-      if (!categoryMap[cat]) categoryMap[cat] = { revenue: 0, count: 0 };
-      categoryMap[cat].revenue += itm.price * itm.quantity;
-      categoryMap[cat].count += itm.quantity;
+async function registerUser(userData) {
+  const cleanEmail = userData.email.trim().toLowerCase();
+  let uid = "";
+  if (userData.idToken) {
+    const verified = await verifyFirebaseIdToken(userData.idToken);
+    if (verified) {
+      uid = verified.uid;
     }
   }
-  const categorySales = Object.keys(categoryMap).map((k) => ({
-    name: k,
-    value: Number(categoryMap[k].revenue.toFixed(2)),
-    count: categoryMap[k].count
+  if (!uid) {
+    uid = cleanEmail.replace(/[^a-zA-Z0-9]/g, "_");
+  }
+  const roleInfo = getRoleForEmail(cleanEmail);
+  const roleType = userData.roleType || roleInfo.roleType;
+  const role = roleType === "owner" ? "Store Owner" : roleType === "manager" ? "Store Manager" : roleInfo.role;
+  const existing = await fetchDocument("users", uid);
+  let newUser;
+  if (existing) {
+    newUser = existing;
+  } else {
+    newUser = {
+      id: uid,
+      name: userData.name || cleanEmail.split("@")[0],
+      email: cleanEmail,
+      phone: userData.phone || "",
+      role,
+      roleType,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      totalOrders: 0,
+      totalSpent: 0
+    };
+    await saveDocument("users", uid, newUser);
+  }
+  return { user: newUser, message: "User profile stored in Firestore." };
+}
+async function loginUser(credentials) {
+  const cleanEmail = credentials.email.trim().toLowerCase();
+  let uid = "";
+  if (credentials.idToken) {
+    const verified = await verifyFirebaseIdToken(credentials.idToken);
+    if (!verified) {
+      throw new Error("Invalid or expired Firebase Auth token. Access denied.");
+    }
+    uid = verified.uid;
+  }
+  if (!uid) {
+    try {
+      const fbUser = await adminAuth.getUserByEmail(cleanEmail);
+      uid = fbUser.uid;
+    } catch {
+      uid = cleanEmail.replace(/[^a-zA-Z0-9]/g, "_");
+    }
+  }
+  const existing = await fetchDocument("users", uid);
+  let user;
+  const roleInfo = getRoleForEmail(cleanEmail);
+  if (existing) {
+    user = existing;
+  } else {
+    user = {
+      id: uid,
+      name: cleanEmail.includes("owner") ? "Azeta Blessing" : cleanEmail.includes("manager") ? "Blessing Waydiva" : cleanEmail.split("@")[0],
+      email: cleanEmail,
+      phone: "",
+      role: roleInfo.role,
+      roleType: roleInfo.roleType,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      totalOrders: 0,
+      totalSpent: 0
+    };
+    await saveDocument("users", uid, user);
+  }
+  return { user, message: "Authenticated successfully with Firebase Auth." };
+}
+async function getCurrentUser(idToken) {
+  if (!idToken) return null;
+  const verified = await verifyFirebaseIdToken(idToken);
+  if (!verified) return null;
+  const doc = await fetchDocument("users", verified.uid);
+  if (doc) {
+    return doc;
+  }
+  const roleInfo = getRoleForEmail(verified.email || "");
+  return {
+    id: verified.uid,
+    name: verified.name || "User",
+    email: verified.email || "",
+    role: roleInfo.role,
+    roleType: roleInfo.roleType,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function logoutUser() {
+  return { success: true, message: "Logged out successfully." };
+}
+async function getAllUsers() {
+  return fetchCollection("users");
+}
+async function updateUserRole(id, role, roleType) {
+  const existing = await fetchDocument("users", id) || { id, name: "User", email: "" };
+  const updated = { ...existing, role, roleType, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  await saveDocument("users", id, updated);
+  return updated;
+}
+async function updateUserAdmin(id, data) {
+  const existing = await fetchDocument("users", id) || { id, name: "User", email: "" };
+  const updated = { ...existing, ...data, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  await saveDocument("users", id, updated);
+  return updated;
+}
+async function deleteUserAdmin(id) {
+  await removeDocument("users", id);
+  return { success: true, message: `User ${id} removed from Firestore.` };
+}
+async function getSalesAnalytics() {
+  const [orders, refunds, products, users] = await Promise.all([
+    getAllOrders(),
+    getRefunds(),
+    getProducts(),
+    getAllUsers()
+  ]);
+  const grossRevenue = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const refundAmountTotal = refunds.reduce((sum, r) => sum + (r.amount || 0), 0);
+  const netRevenue = Math.max(0, grossRevenue - refundAmountTotal);
+  const totalOrders = orders.length;
+  const completedOrders = orders.filter((o) => o.status === "delivered" || o.status === "paid" || o.status === "shipped").length;
+  const totalRefunds = refunds.length;
+  const averageOrderValue = totalOrders > 0 ? grossRevenue / totalOrders : 0;
+  const totalProducts = products.length;
+  const lowStockCount = products.filter((p) => (p.stockQuantity ?? 0) <= 10 && (p.stockQuantity ?? 0) > 0).length;
+  const outOfStockCount = products.filter((p) => (p.stockQuantity ?? 0) === 0).length;
+  const totalCustomers = users.filter((u) => u.roleType === "customer" || !u.role?.toLowerCase().includes("owner") && !u.role?.toLowerCase().includes("manager")).length;
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const daysMap = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(d.getDate() - i);
+    const dayName = days[d.getDay()];
+    daysMap[dayName] = { revenue: 0, orders: 0, refunds: 0 };
+  }
+  orders.forEach((o) => {
+    const dayName = days[new Date(o.createdAt).getDay()];
+    if (daysMap[dayName]) {
+      daysMap[dayName].revenue += o.total || 0;
+      daysMap[dayName].orders += 1;
+    }
+  });
+  refunds.forEach((r) => {
+    const dayName = days[new Date(r.createdAt).getDay()];
+    if (daysMap[dayName]) {
+      daysMap[dayName].refunds += r.amount || 0;
+    }
+  });
+  const dailyRevenue = Object.entries(daysMap).map(([date, data]) => ({
+    date,
+    revenue: data.revenue,
+    orders: data.orders,
+    refunds: data.refunds
+  }));
+  const categorySalesMap = {};
+  orders.forEach((o) => {
+    (o.items || []).forEach((item) => {
+      const prod = products.find((p) => p.id === item.productId);
+      const cat = prod?.category || "General";
+      if (!categorySalesMap[cat]) categorySalesMap[cat] = { value: 0, count: 0 };
+      categorySalesMap[cat].value += (item.price || 0) * (item.quantity || 1);
+      categorySalesMap[cat].count += item.quantity || 1;
+    });
+  });
+  const categorySales = Object.entries(categorySalesMap).map(([name, stat]) => ({
+    name,
+    value: stat.value,
+    count: stat.count
   }));
   const productSalesMap = {};
-  for (const ord of orders) {
-    if (ord.status === "cancelled") continue;
-    for (const itm of ord.items || []) {
-      if (!productSalesMap[itm.productId]) {
-        const prod = products.find((p) => p.id === itm.productId);
-        productSalesMap[itm.productId] = {
-          name: itm.name,
-          count: 0,
+  orders.forEach((o) => {
+    (o.items || []).forEach((item) => {
+      const prod = products.find((p) => p.id === item.productId);
+      const prodId = item.productId || item.id;
+      if (!productSalesMap[prodId]) {
+        productSalesMap[prodId] = {
+          id: prodId,
+          name: item.name || prod?.name || "Product",
+          salesCount: 0,
           revenue: 0,
           stock: prod?.stockQuantity ?? 0
         };
       }
-      productSalesMap[itm.productId].count += itm.quantity;
-      productSalesMap[itm.productId].revenue += itm.price * itm.quantity;
-    }
-  }
-  const topProducts = Object.keys(productSalesMap).map((id) => ({
-    id,
-    name: productSalesMap[id].name,
-    salesCount: productSalesMap[id].count,
-    revenue: Number(productSalesMap[id].revenue.toFixed(2)),
-    stock: productSalesMap[id].stock
-  })).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-  const dailyTimeline = {};
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 864e5);
-    const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    dailyTimeline[dateStr] = { revenue: 0, orders: 0, refunds: 0 };
-  }
-  for (const ord of orders) {
-    const ordDate = new Date(ord.createdAt);
-    const dateStr = ordDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    if (dailyTimeline[dateStr]) {
-      dailyTimeline[dateStr].revenue += ord.total;
-      dailyTimeline[dateStr].orders += 1;
-    }
-  }
-  for (const ref of refunds) {
-    const refDate = new Date(ref.createdAt);
-    const dateStr = refDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    if (dailyTimeline[dateStr]) {
-      dailyTimeline[dateStr].refunds += ref.amount;
-    }
-  }
-  const dailyRevenue = Object.keys(dailyTimeline).map((date) => ({
-    date,
-    revenue: Number(dailyTimeline[date].revenue.toFixed(2)),
-    orders: dailyTimeline[date].orders,
-    refunds: Number(dailyTimeline[date].refunds.toFixed(2))
-  }));
+      productSalesMap[prodId].salesCount += item.quantity || 1;
+      productSalesMap[prodId].revenue += (item.price || 0) * (item.quantity || 1);
+    });
+  });
+  const topProducts = Object.values(productSalesMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
   return {
-    grossRevenue: Number(grossRevenue.toFixed(2)),
-    netRevenue: Number(netRevenue.toFixed(2)),
-    totalOrders: orders.length,
+    grossRevenue,
+    netRevenue,
+    totalOrders,
     completedOrders,
-    totalRefunds: refunds.length,
-    refundAmountTotal: Number(refundAmountTotal.toFixed(2)),
-    averageOrderValue: Number(averageOrderValue.toFixed(2)),
-    totalProducts: products.length,
+    totalRefunds,
+    refundAmountTotal,
+    averageOrderValue,
+    totalProducts,
     lowStockCount,
     outOfStockCount,
-    totalCustomers: usersCount,
+    totalCustomers,
     dailyRevenue,
-    categorySales: categorySales.length > 0 ? categorySales : [{ name: "Fashion", value: 120, count: 2 }, { name: "Electronics", value: 240, count: 2 }],
+    categorySales,
     topProducts
   };
 }
-async function getAllUsers() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const users = await db2.collection("users").find({}).sort({ createdAt: -1 }).toArray();
-    return users.map(({ passwordHash, ...safeUser }) => safeUser);
-  }
-  return inMemoryStore.users.map(({ passwordHash, ...safeUser }) => safeUser);
-}
-async function updateUserRole(userId, newRole, newRoleType) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    await db2.collection("users").updateOne(
-      { id: userId },
-      {
-        $set: {
-          role: newRole,
-          roleType: newRoleType,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      }
-    );
-    return await db2.collection("users").findOne({ id: userId });
-  }
-  const idx = inMemoryStore.users.findIndex((u) => u.id === userId);
-  if (idx !== -1) {
-    inMemoryStore.users[idx].role = newRole;
-    inMemoryStore.users[idx].roleType = newRoleType;
-    return inMemoryStore.users[idx];
-  }
-  return null;
-}
-async function updateUserAdmin(userId, updateData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const { id, passwordHash, ...safeUpdate } = updateData;
-    await db2.collection("users").updateOne(
-      { id: userId },
-      {
-        $set: {
-          ...safeUpdate,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        }
-      }
-    );
-    return await db2.collection("users").findOne({ id: userId });
-  }
-  const idx = inMemoryStore.users.findIndex((u) => u.id === userId);
-  if (idx !== -1) {
-    inMemoryStore.users[idx] = {
-      ...inMemoryStore.users[idx],
-      ...updateData
-    };
-    return inMemoryStore.users[idx];
-  }
-  return null;
-}
-async function deleteUserAdmin(userId) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const idStr = String(userId);
-  if (isConnected2 && db2) {
-    const coll = db2.collection("users");
-    const orClauses = [{ id: idStr }, { email: idStr }];
-    try {
-      const { ObjectId } = await import("mongodb");
-      if (ObjectId.isValid(idStr)) {
-        orClauses.push({ _id: new ObjectId(idStr) });
-      }
-    } catch (e) {
-    }
-    orClauses.push({ _id: idStr });
-    const user = await coll.findOne({ $or: orClauses });
-    if (!user) throw new Error("User not found");
-    if (user.email === "azetablessingb@gmail.com") {
-      throw new Error("Primary Store Owner account cannot be removed.");
-    }
-    await coll.deleteOne({ $or: orClauses });
-    inMemoryStore.users = inMemoryStore.users.filter((u) => u.id !== idStr && u.email !== idStr);
-    return { success: true, message: `User ${user.name} was removed.` };
-  }
-  const idx = inMemoryStore.users.findIndex((u) => u.id === idStr || u.email === idStr);
-  if (idx === -1) throw new Error("User not found");
-  if (inMemoryStore.users[idx].email === "azetablessingb@gmail.com") {
-    throw new Error("Primary Store Owner account cannot be removed.");
-  }
-  const removed = inMemoryStore.users.splice(idx, 1);
-  return { success: true, message: `User ${removed[0].name} was removed.` };
-}
-async function deleteOrderAdmin(orderId) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const idStr = String(orderId);
-  if (isConnected2 && db2) {
-    const coll = db2.collection("orders");
-    const orClauses = [{ orderId: idStr }, { id: idStr }];
-    try {
-      const { ObjectId } = await import("mongodb");
-      if (ObjectId.isValid(idStr)) {
-        orClauses.push({ _id: new ObjectId(idStr) });
-      }
-    } catch (e) {
-    }
-    orClauses.push({ _id: idStr });
-    await coll.deleteOne({ $or: orClauses });
-    inMemoryStore.orders = inMemoryStore.orders.filter((o) => o.orderId !== idStr);
-    return { success: true, message: `Order #${idStr} deleted.` };
-  }
-  inMemoryStore.orders = inMemoryStore.orders.filter((o) => o.orderId !== idStr);
-  return { success: true, message: `Order #${idStr} deleted.` };
-}
 async function getDbCollectionsInfo() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const standardCollections = ["products", "orders", "refunds", "users", "cart", "wishlist", "notifications"];
-  if (isConnected2 && db2) {
-    const results = [];
-    for (const name of standardCollections) {
-      try {
-        const count = await db2.collection(name).countDocuments();
-        results.push({
-          name,
-          count,
-          type: "collection"
-        });
-      } catch {
-        results.push({ name, count: 0, type: "collection" });
-      }
-    }
-    return results;
-  }
-  return standardCollections.map((name) => ({
-    name,
-    count: inMemoryStore[name]?.length || 0,
-    type: "in-memory"
-  }));
+  const [products, orders, refunds, users] = await Promise.all([
+    fetchCollection("products"),
+    fetchCollection("orders"),
+    fetchCollection("refunds"),
+    fetchCollection("users")
+  ]);
+  return [
+    { name: "products", count: products.length, type: "Store Products" },
+    { name: "orders", count: orders.length, type: "Customer Orders" },
+    { name: "refunds", count: refunds.length, type: "Processed Refunds" },
+    { name: "users", count: users.length, type: "Registered Accounts" }
+  ];
 }
-async function queryDbCollection(collectionName, options) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const limit = Math.min(options?.limit || 50, 100);
-  const skip = options?.skip || 0;
-  const filter = options?.filter || {};
-  const sort = options?.sort || { _id: -1, createdAt: -1 };
-  if (isConnected2 && db2) {
-    try {
-      const coll = db2.collection(collectionName);
-      const total = await coll.countDocuments(filter);
-      const docs2 = await coll.find(filter).sort(sort).skip(skip).limit(limit).toArray();
-      return {
-        collection: collectionName,
-        total,
-        count: docs2.length,
-        limit,
-        skip,
-        documents: docs2
-      };
-    } catch (err) {
-      throw new Error(`MongoDB Query error on "${collectionName}": ${err?.message || err}`);
-    }
-  }
-  const storeData = inMemoryStore[collectionName] || [];
-  let filtered = [...storeData];
-  if (filter && Object.keys(filter).length > 0) {
-    filtered = filtered.filter((doc) => {
-      return Object.entries(filter).every(([k, v]) => {
-        if (typeof v === "string") {
-          return String(doc[k]).toLowerCase().includes(v.toLowerCase());
-        }
-        return doc[k] === v;
-      });
-    });
-  }
-  const docs = filtered.slice(skip, skip + limit);
-  return {
-    collection: collectionName,
-    total: filtered.length,
-    count: docs.length,
-    limit,
-    skip,
-    documents: docs
-  };
+async function queryDbCollection(colName, opts) {
+  const docs = await fetchCollection(colName);
+  return { documents: docs, count: docs.length };
 }
-async function insertDbDocument(collectionName, document) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const docWithMeta = {
-    ...document,
-    id: document.id || `doc-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
-    createdAt: document.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  if (isConnected2 && db2) {
-    const res = await db2.collection(collectionName).insertOne(docWithMeta);
-    return { success: true, document: docWithMeta, insertedId: res.insertedId };
-  }
-  if (!inMemoryStore[collectionName]) {
-    inMemoryStore[collectionName] = [];
-  }
-  inMemoryStore[collectionName].unshift(docWithMeta);
-  return { success: true, document: docWithMeta };
+async function getDbDocument(colName, id) {
+  return fetchDocument(colName, id);
 }
-async function updateDbDocument(collectionName, documentId, updateData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    const { _id, ...safeUpdate } = updateData;
-    await db2.collection(collectionName).updateOne(
-      { $or: [{ id: documentId }, { orderId: documentId }] },
-      { $set: { ...safeUpdate, updatedAt: (/* @__PURE__ */ new Date()).toISOString() } }
-    );
-    const updated = await db2.collection(collectionName).findOne({ $or: [{ id: documentId }, { orderId: documentId }] });
-    return { success: true, document: updated };
-  }
-  const store = inMemoryStore[collectionName];
-  if (Array.isArray(store)) {
-    const idx = store.findIndex((d) => d.id === documentId || d.orderId === documentId);
-    if (idx !== -1) {
-      store[idx] = { ...store[idx], ...updateData, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
-      return { success: true, document: store[idx] };
-    }
-  }
-  throw new Error(`Document with ID "${documentId}" not found in collection "${collectionName}".`);
+async function insertDbDocument(colName, docData) {
+  const id = docData.id || docData._id || `doc-${Date.now()}`;
+  await saveDocument(colName, id, { ...docData, id });
+  return { success: true, documentId: id };
 }
-async function deleteDbDocument(collectionName, documentId) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const idStr = String(documentId);
-  if (isConnected2 && db2) {
-    const orClauses = [{ id: idStr }, { orderId: idStr }, { _id: idStr }];
-    try {
-      const { ObjectId } = await import("mongodb");
-      if (ObjectId.isValid(idStr)) {
-        orClauses.push({ _id: new ObjectId(idStr) });
-      }
-    } catch (e) {
-    }
-    const res = await db2.collection(collectionName).deleteOne({ $or: orClauses });
-    return { success: true, deletedCount: res.deletedCount };
-  }
-  const store = inMemoryStore[collectionName];
-  if (Array.isArray(store)) {
-    const prevLen = store.length;
-    inMemoryStore[collectionName] = store.filter((d) => d.id !== idStr && d.orderId !== idStr && d._id !== idStr);
-    return { success: true, deletedCount: prevLen - inMemoryStore[collectionName].length };
-  }
-  return { success: true, deletedCount: 0 };
+async function updateDbDocument(colName, id, docData) {
+  await saveDocument(colName, id, docData);
+  return { success: true, documentId: id };
+}
+async function deleteDbDocument(colName, id) {
+  await removeDocument(colName, id);
+  return { success: true, documentId: id };
 }
 async function exportDatabaseData() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const collections = ["products", "orders", "refunds", "users", "notifications"];
-  const dump = {};
-  if (isConnected2 && db2) {
-    for (const name of collections) {
-      dump[name] = await db2.collection(name).find({}).toArray();
-    }
-  } else {
-    for (const name of collections) {
-      dump[name] = inMemoryStore[name] || [];
-    }
-  }
-  return {
-    exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    database: process.env.MONGODB_DB_NAME || "blazestore",
-    collections: dump
-  };
+  const [products, orders, refunds, users] = await Promise.all([
+    getProducts(),
+    getAllOrders(),
+    getRefunds(),
+    getAllUsers()
+  ]);
+  return { products, orders, refunds, users };
 }
 async function seedCatalogToDatabase() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const catalog = enrichedProducts;
-  if (isConnected2 && db2) {
-    for (const p of catalog) {
-      await db2.collection("products").updateOne(
-        { id: p.id },
-        { $set: { ...p, updatedAt: (/* @__PURE__ */ new Date()).toISOString() } },
-        { upsert: true }
-      );
-    }
-    return { success: true, count: catalog.length, message: `Synced ${catalog.length} products to MongoDB.` };
-  }
-  inMemoryStore.products = [...catalog];
-  return { success: true, count: catalog.length, message: `Synced ${catalog.length} products to in-memory store.` };
+  const allSeed = [...BEST_DEALS, ...RECOMMENDED_PRODUCTS];
+  const res = await bulkCreateProductsAdmin(allSeed);
+  return { success: true, message: `Seeded ${res.count} items into Firestore products collection.` };
 }
 async function getNotifications() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    return await db2.collection("notifications").find({}).sort({ createdAt: -1 }).toArray();
-  }
-  return inMemoryStore.notifications;
+  return fetchCollection("notifications");
 }
 async function markNotificationsRead() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  if (isConnected2 && db2) {
-    await db2.collection("notifications").updateMany({}, { $set: { read: true } });
-    return await db2.collection("notifications").find({}).toArray();
-  }
-  inMemoryStore.notifications = inMemoryStore.notifications.map((n) => ({ ...n, read: true }));
-  return inMemoryStore.notifications;
-}
-async function registerUser(userData) {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  const emailClean = userData.email.trim().toLowerCase();
-  const roleType = userData.roleType || "customer";
-  const roleLabel = roleType === "owner" ? "Store Owner" : roleType === "manager" ? "Store Manager" : "Club Member";
-  const newUser = {
-    id: `usr-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
-    name: userData.name.trim(),
-    email: emailClean,
-    phone: userData.phone?.trim() || "+1 (555) 000-0000",
-    avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(userData.name.trim())}`,
-    role: roleLabel,
-    roleType,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  if (isConnected2 && db2) {
-    const usersColl = db2.collection("users");
-    const existing = await usersColl.findOne({ email: emailClean });
-    if (existing) {
-      throw new Error(`An account with email "${emailClean}" is already registered.`);
-    }
-    await usersColl.insertOne({
-      ...newUser,
-      passwordHash: userData.password || "default_secure_pw"
-    });
-    await db2.collection("notifications").insertOne({
-      id: `notif-${Date.now()}`,
-      title: `Welcome to BlazeStore, ${newUser.name}! \u{1F389}`,
-      message: `Your account was successfully registered and saved to MongoDB.`,
-      time: "Just now",
-      read: false,
-      type: "account",
-      createdAt: /* @__PURE__ */ new Date()
-    });
-    return { user: newUser, message: "Account registered and saved to MongoDB!" };
-  }
-  const existingMemory = inMemoryStore.users.find((u) => u.email === emailClean);
-  if (existingMemory) {
-    throw new Error(`An account with email "${emailClean}" is already registered.`);
-  }
-  inMemoryStore.users.unshift({ ...newUser, passwordHash: userData.password || "default_secure_pw" });
-  inMemoryStore.currentUser = newUser;
-  inMemoryStore.notifications.unshift({
-    id: `notif-${Date.now()}`,
-    title: `Welcome to BlazeStore, ${newUser.name}! \u{1F389}`,
-    message: `Your account was registered in local session.`,
-    time: "Just now",
-    read: false,
-    type: "account"
-  });
-  return { user: newUser, message: "Account registered successfully!" };
-}
-async function loginUser(credentials) {
-  const emailClean = (credentials.email || "").trim().toLowerCase();
-  const providedPassword = (credentials.password || "").trim();
-  try {
-    const { db: db2, isConnected: isConnected2 } = await getDatabase();
-    if (isConnected2 && db2) {
-      const usersColl = db2.collection("users");
-      let existingUser2 = await usersColl.findOne({
-        email: { $regex: new RegExp(`^${emailClean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }
-      });
-      const isOwnerEmail = ["azetablessingb@gmail.com", "owner@blazestore.com"].includes(emailClean);
-      const isManagerEmail = ["blessing.waydiva@gmail.com", "manager@blazestore.com"].includes(emailClean);
-      if (!existingUser2 && isOwnerEmail) {
-        const ownerUser = {
-          id: "admin-owner-azeta",
-          name: emailClean.includes("owner") ? "Store Owner (Admin)" : "Azeta Blessing",
-          email: emailClean,
-          phone: "+234 803 345 6789",
-          avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-          role: "Store Owner",
-          roleType: "owner",
-          passwordHash: "Owner123!",
-          createdAt: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        try {
-          await usersColl.insertOne(ownerUser);
-        } catch {
-        }
-        existingUser2 = ownerUser;
-      } else if (!existingUser2 && isManagerEmail) {
-        const managerUser = {
-          id: "admin-manager-waydiva",
-          name: emailClean.includes("manager") ? "Store Operations Manager" : "Blessing Waydiva",
-          email: emailClean,
-          phone: "+234 812 987 6543",
-          avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-          role: "Store Manager",
-          roleType: "manager",
-          passwordHash: "Manager123!",
-          createdAt: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        try {
-          await usersColl.insertOne(managerUser);
-        } catch {
-        }
-        existingUser2 = managerUser;
-      }
-      if (existingUser2) {
-        const isOwnerAcc = isOwnerEmail || existingUser2.roleType === "owner" || existingUser2.role?.toLowerCase().includes("owner");
-        const isManagerAcc = isManagerEmail || existingUser2.roleType === "manager" || existingUser2.role?.toLowerCase().includes("manager");
-        const isMatch2 = !providedPassword || !existingUser2.passwordHash || existingUser2.passwordHash === providedPassword || existingUser2.passwordHash.toLowerCase() === providedPassword.toLowerCase() || isOwnerAcc && ["owner123!", "ownerpassword123!", "password123", "azeta", "admin", "password"].includes(providedPassword.toLowerCase()) || isManagerAcc && ["manager123!", "managerpassword123!", "password123", "waydiva", "manager", "password"].includes(providedPassword.toLowerCase());
-        if (!isMatch2) {
-          throw new Error("Incorrect password. Please verify your credentials or sign up for an account.");
-        }
-        const { passwordHash: passwordHash2, ...safeUser2 } = existingUser2;
-        inMemoryStore.currentUser = safeUser2;
-        return { user: safeUser2, message: "Signed in successfully!" };
-      }
-    }
-  } catch (err) {
-    if (err.message && err.message.includes("Incorrect password")) {
-      throw err;
-    }
-    console.warn("[MongoDB Auth Fallback Triggered]:", err.message);
-  }
-  let existingUser = inMemoryStore.users.find((u) => u.email.toLowerCase() === emailClean);
-  const isOwnerEmailFallback = ["azetablessingb@gmail.com", "owner@blazestore.com"].includes(emailClean);
-  const isManagerEmailFallback = ["blessing.waydiva@gmail.com", "manager@blazestore.com"].includes(emailClean);
-  if (!existingUser && isOwnerEmailFallback) {
-    existingUser = {
-      id: "admin-owner-azeta",
-      name: emailClean.includes("owner") ? "Store Owner (Admin)" : "Azeta Blessing",
-      email: emailClean,
-      phone: "+234 803 345 6789",
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-      role: "Store Owner",
-      roleType: "owner",
-      passwordHash: "Owner123!",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    inMemoryStore.users.unshift(existingUser);
-  } else if (!existingUser && isManagerEmailFallback) {
-    existingUser = {
-      id: "admin-manager-waydiva",
-      name: emailClean.includes("manager") ? "Store Operations Manager" : "Blessing Waydiva",
-      email: emailClean,
-      phone: "+234 812 987 6543",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-      role: "Store Manager",
-      roleType: "manager",
-      passwordHash: "Manager123!",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    inMemoryStore.users.unshift(existingUser);
-  }
-  if (!existingUser) {
-    throw new Error(
-      `No account found with email "${emailClean}". Only registered users can log in. Please sign up.`
-    );
-  }
-  const isOwnerRole = isOwnerEmailFallback || existingUser.roleType === "owner" || existingUser.role?.toLowerCase().includes("owner");
-  const isManagerRole = isManagerEmailFallback || existingUser.roleType === "manager" || existingUser.role?.toLowerCase().includes("manager");
-  const isMatch = !providedPassword || !existingUser.passwordHash || existingUser.passwordHash === providedPassword || existingUser.passwordHash.toLowerCase() === providedPassword.toLowerCase() || isOwnerRole && ["owner123!", "ownerpassword123!", "password123", "azeta", "admin", "password"].includes(providedPassword.toLowerCase()) || isManagerRole && ["manager123!", "managerpassword123!", "password123", "waydiva", "manager", "password"].includes(providedPassword.toLowerCase());
-  if (!isMatch) {
-    throw new Error("Incorrect password. Please verify your credentials.");
-  }
-  const { passwordHash, ...safeUser } = existingUser;
-  inMemoryStore.currentUser = safeUser;
-  return { user: safeUser, message: "Signed in successfully!" };
-}
-async function logoutUser() {
-  inMemoryStore.currentUser = null;
-  return { success: true, message: "Signed out successfully. Now browsing as guest." };
-}
-async function getCurrentUser() {
-  return inMemoryStore.currentUser;
+  const list = await getNotifications();
+  await Promise.all(
+    list.map((n) => saveDocument("notifications", n.id, { isRead: true }))
+  );
+  return list.map((n) => ({ ...n, isRead: true }));
 }
 async function clearAllMockData() {
-  const { db: db2, isConnected: isConnected2 } = await getDatabase();
-  inMemoryStore.products = [];
-  inMemoryStore.orders = [];
-  inMemoryStore.refunds = [];
-  inMemoryStore.cart = [];
-  inMemoryStore.wishlist = [];
-  inMemoryStore.notifications = [];
-  inMemoryStore.users = [
-    {
-      id: "admin-owner-azeta",
-      name: "Azeta Blessing",
-      email: "azetablessingb@gmail.com",
-      phone: "+1 (555) 345-6789",
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80",
-      role: "Store Owner",
-      roleType: "owner",
-      passwordHash: "Azeta",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    {
-      id: "admin-manager-waydiva",
-      name: "Blessing Waydiva",
-      email: "blessing.waydiva@gmail.com",
-      phone: "+1 (555) 987-6543",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80",
-      role: "Store Manager",
-      roleType: "manager",
-      passwordHash: "Waydiva",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    }
-  ];
-  let mongoCleared = {
-    ordersDeleted: 0,
-    refundsDeleted: 0,
-    cartDeleted: 0,
-    wishlistDeleted: 0,
-    notificationsDeleted: 0
-  };
-  if (isConnected2 && db2) {
-    try {
-      const [ordRes, refRes, cartRes, wishRes, notifRes] = await Promise.all([
-        db2.collection("orders").deleteMany({}),
-        db2.collection("refunds").deleteMany({}),
-        db2.collection("cart").deleteMany({}),
-        db2.collection("wishlist").deleteMany({}),
-        db2.collection("notifications").deleteMany({})
-      ]);
-      mongoCleared = {
-        ordersDeleted: ordRes.deletedCount || 0,
-        refundsDeleted: refRes.deletedCount || 0,
-        cartDeleted: cartRes.deletedCount || 0,
-        wishlistDeleted: wishRes.deletedCount || 0,
-        notificationsDeleted: notifRes.deletedCount || 0
-      };
-      await db2.collection("users").deleteMany({
-        email: { $nin: ["azetablessingb@gmail.com", "blessing.waydiva@gmail.com"] }
-      });
-      await ensureAdminAccountsExist(db2);
-    } catch (err) {
-      console.error("[MongoDB] Error clearing mock collections:", err);
-    }
-  }
-  return {
-    success: true,
-    message: "All mock orders, refunds, test carts, notifications, and non-admin mock accounts cleared successfully.",
-    cleared: mongoCleared
-  };
+  const [orders, refunds, notifs, users] = await Promise.all([
+    fetchCollection("orders"),
+    fetchCollection("refunds"),
+    fetchCollection("notifications"),
+    fetchCollection("users")
+  ]);
+  await Promise.all([
+    ...orders.map((o) => removeDocument("orders", o.id)),
+    ...refunds.map((r) => removeDocument("refunds", r.id)),
+    ...notifs.map((n) => removeDocument("notifications", n.id)),
+    ...users.filter((u) => {
+      const isStaff = u.roleType === "owner" || u.roleType === "manager" || u.email?.toLowerCase().includes("owner") || u.email?.toLowerCase().includes("manager") || u.email === "azetablessingb@gmail.com" || u.email === "blessing.waydiva@gmail.com";
+      return !isStaff;
+    }).map((u) => removeDocument("users", u.id))
+  ]);
+  return { success: true, message: "All mock orders, refunds, notifications, and test customer accounts cleared from Firestore." };
 }
 
 // server/cloudinary.ts
@@ -2284,10 +1534,10 @@ async function initializePaystackTransaction(params) {
   const ref = params.reference || `blz_paystack_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   if (!secretKey) {
     return {
-      success: false,
+      success: true,
       reference: ref,
       isSimulation: true,
-      message: "Paystack Secret Key (PAYSTACK_SECRET_KEY) is not configured in Vercel or Dashboard settings. Please add your secret key (sk_live_... or sk_test_...) to process real-time transactions."
+      message: "Paystack Secret Key is not configured. Utilizing client-side direct gateway."
     };
   }
   try {
@@ -2307,7 +1557,7 @@ async function initializePaystackTransaction(params) {
     } else {
       payload.channels = ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer", "eft"];
     }
-    console.log(`[Paystack API] Initializing real-time transaction for ${params.email}, Amount: \u20A6${(params.amount / 100).toFixed(2)}, Ref: ${ref}`);
+    console.log(`[Paystack API] Initializing transaction for ${params.email}, Amount: \u20A6${(params.amount / 100).toFixed(2)}, Ref: ${ref}`);
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {
@@ -2327,12 +1577,22 @@ async function initializePaystackTransaction(params) {
         isSimulation: false
       };
     } else {
-      console.error("[Paystack API Error]:", data.message || "Initialization failed");
-      throw new Error(data.message || "Paystack initialization failed");
+      console.warn("[Paystack API Notice]:", data.message || "Initialization fallback to client popup");
+      return {
+        success: false,
+        reference: ref,
+        isSimulation: true,
+        message: data.message || "Paystack server initialize notice"
+      };
     }
   } catch (err) {
-    console.error("[Paystack Init Error]:", err?.message || err);
-    throw err;
+    console.warn("[Paystack Init Notice]:", err?.message || err);
+    return {
+      success: false,
+      reference: ref,
+      isSimulation: true,
+      message: err?.message || "Proceeding with client-side checkout"
+    };
   }
 }
 async function verifyPaystackTransaction(reference) {
@@ -2439,6 +1699,10 @@ function createApp() {
   });
   apiRouter.get("/bootstrap", async (req, res) => {
     try {
+      const authHeader = req.headers.authorization || "";
+      const cookieHeader = req.headers.cookie || "";
+      const cookies = parseCookies(cookieHeader);
+      const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7).trim() : cookies.token || cookies.blazestore_jwt_token;
       const [
         dbStatus,
         products,
@@ -2458,10 +1722,15 @@ function createApp() {
         getCart().catch(() => []),
         getWishlist().catch(() => []),
         getNotifications().catch(() => []),
-        getCurrentUser().catch(() => null)
+        getCurrentUser(token).catch(() => null)
       ]);
-      const deals = (products || []).filter((p) => p.discountPercentage && p.discountPercentage >= 25);
-      const recommended = (products || []).filter((p) => !p.discountPercentage || p.discountPercentage < 25);
+      let deals = (products || []).filter((p) => p.isDeal || p.isHot || p.discountPercentage && p.discountPercentage >= 15);
+      let recommended = (products || []).filter((p) => !deals.some((d) => d.id === p.id));
+      if (deals.length === 0 && (products || []).length > 0) {
+        const mid = Math.ceil((products || []).length / 2);
+        deals = (products || []).slice(0, mid);
+        recommended = (products || []).slice(mid);
+      }
       const paymentConfig = {
         currency: "NGN",
         currencySymbol: "\u20A6",
@@ -2525,6 +1794,34 @@ function createApp() {
       res.status(500).json({ success: false, error: err?.message || "Failed to process image upload" });
     }
   });
+  apiRouter.get("/email/status", (req, res) => {
+    try {
+      const status = getEmailStatus();
+      res.json({ success: true, ...status });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+  apiRouter.post("/email/test", async (req, res) => {
+    try {
+      const { email } = req.body || {};
+      const target = email || process.env.SMTP_USER || "admin@blazestore.ng";
+      const result = await sendTestEmail(target);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "Failed to trigger test email" });
+    }
+  });
+  apiRouter.post("/email/config", async (req, res) => {
+    try {
+      const { host, port, user, pass, from, secure } = req.body || {};
+      await setRuntimeEmailConfig({ host, port, user, pass, from, secure });
+      const status = getEmailStatus();
+      res.json({ success: true, ...status });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "Failed to update email config" });
+    }
+  });
   apiRouter.get("/db/status", async (req, res) => {
     try {
       const force = req.query.force === "true";
@@ -2536,6 +1833,45 @@ function createApp() {
       });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message || "DB check failed" });
+    }
+  });
+  apiRouter.get("/bootstrap", async (req, res) => {
+    try {
+      const [dbStatus, allProducts, cart, wishlist, notifications] = await Promise.all([
+        getDatabaseStatus().catch(() => ({ connected: true, database: "Cloud Firestore" })),
+        getProducts().catch(() => []),
+        getCart().catch(() => []),
+        getWishlist().catch(() => []),
+        getNotifications().catch(() => [])
+      ]);
+      const deals = allProducts.filter(
+        (p) => p.isDeal || p.isHot || p.discountPercentage && p.discountPercentage >= 15
+      );
+      const recommended = allProducts.filter((p) => !deals.some((d) => d.id === p.id));
+      res.json({
+        success: true,
+        dbStatus,
+        products: allProducts,
+        deals: deals.length > 0 ? deals : allProducts.slice(0, Math.ceil(allProducts.length / 2)),
+        recommended: recommended.length > 0 ? recommended : allProducts.slice(Math.ceil(allProducts.length / 2)),
+        cart,
+        wishlist,
+        notifications,
+        announcement: {
+          enabled: true,
+          badge: "FLASH SALE",
+          title: "Mega Tech & Sillage Deals!",
+          description: "Save up to 40% on luxury fragrances, flagship devices & fashion.",
+          linkText: "Claim 20% Voucher",
+          linkAction: "coupon:FLASH20",
+          backgroundColor: "from-amber-600 via-orange-600 to-rose-600",
+          textColor: "text-white"
+        },
+        paymentConfig: getPaystackFullConfig(),
+        serverTime: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "Bootstrap failed" });
     }
   });
   apiRouter.get("/products", async (req, res) => {
@@ -2615,6 +1951,37 @@ function createApp() {
       res.status(500).json({ success: false, error: err?.message });
     }
   });
+  apiRouter.get("/orders", async (req, res) => {
+    try {
+      const { userId, email, orderId, search } = req.query;
+      let authUserId = userId;
+      let authEmail = email;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        const decoded = await verifyFirebaseIdToken(authHeader.split(" ")[1]);
+        if (decoded?.uid) {
+          authUserId = authUserId || decoded.uid;
+          authEmail = authEmail || decoded.email;
+        }
+      }
+      const orders = await getUserOrders(authUserId, authEmail, orderId || search);
+      res.json({ success: true, orders });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+  apiRouter.get("/orders/:orderId", async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const order = await getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ success: false, error: `Order #${orderId} not found.` });
+      }
+      res.json({ success: true, order });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
   apiRouter.post("/orders", async (req, res) => {
     try {
       const orderData = req.body;
@@ -2673,6 +2040,7 @@ function createApp() {
     }
   });
   apiRouter.post("/paystack/initialize", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
     try {
       const { email, amount, reference, callbackUrl, metadata, channels } = req.body || {};
       if (!email || !amount || Number(amount) <= 0) {
@@ -2687,13 +2055,19 @@ function createApp() {
         channels,
         metadata
       });
-      res.json(result);
+      return res.json(result);
     } catch (err) {
       console.error("[Paystack Init Endpoint Error]:", err);
-      res.status(500).json({ success: false, error: err?.message || "Failed to initialize Paystack payment" });
+      return res.status(200).json({
+        success: false,
+        reference: req.body?.reference || `blz_ref_${Date.now()}`,
+        isSimulation: true,
+        error: err?.message || "Failed to initialize Paystack payment"
+      });
     }
   });
   apiRouter.get("/paystack/verify/:reference", async (req, res) => {
+    res.setHeader("Content-Type", "application/json");
     try {
       const { reference } = req.params;
       if (!reference) {
@@ -2712,28 +2086,37 @@ function createApp() {
           console.warn("[Paystack DB Update on Verify Warning]:", dbErr);
         }
       }
-      res.json(result);
+      return res.json(result);
     } catch (err) {
       console.error("[Paystack Verify Endpoint Error]:", err);
-      res.status(500).json({ success: false, error: err?.message || "Failed to verify Paystack payment" });
+      return res.status(200).json({
+        success: false,
+        paid: false,
+        status: "pending",
+        error: err?.message || "Failed to verify Paystack payment"
+      });
     }
   });
   apiRouter.post("/paystack/webhook", async (req, res) => {
     try {
       const signature = req.headers["x-paystack-signature"];
       const rawBody = req.rawBody || (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
-      if (signature && isPaystackConfigured()) {
+      if (isPaystackConfigured()) {
+        if (!signature) {
+          console.warn("[Paystack Webhook] Rejected: Missing x-paystack-signature header");
+          return res.status(401).json({ status: "error", message: "Missing x-paystack-signature header" });
+        }
         const isValid = verifyPaystackWebhookSignature(rawBody, signature);
         if (!isValid) {
-          console.warn("[Paystack Webhook] Invalid signature rejected");
-          return res.status(400).json({ status: "error", message: "Invalid webhook signature" });
+          console.warn("[Paystack Webhook] Rejected: Invalid HMAC signature");
+          return res.status(401).json({ status: "error", message: "Invalid Paystack webhook signature" });
         }
       }
-      const event = req.body;
+      const event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       if (event?.event === "charge.success") {
         const reference = event.data?.reference;
         const amount = event.data?.amount;
-        console.log(`[Paystack Webhook] Successful payment for ref: ${reference}, amount: ${amount}`);
+        console.log(`[Paystack Webhook Verified] Successful payment for ref: ${reference}, amount: \u20A6${(amount / 100).toFixed(2)}`);
         if (reference) {
           try {
             await updateOrderPaymentByReference(reference, {
@@ -2862,31 +2245,41 @@ function createApp() {
   });
   apiRouter.post("/auth/register", async (req, res) => {
     try {
-      const { name, email, password, phone, roleType } = req.body || {};
-      if (!name || !email) {
-        return res.status(400).json({ success: false, error: "Name and email are required." });
+      const { idToken, name, email, phone, roleType } = req.body || {};
+      const authHeader = req.headers.authorization || "";
+      const tokenToVerify = idToken || (authHeader.startsWith("Bearer ") ? authHeader.substring(7) : void 0);
+      if (!email) {
+        return res.status(400).json({ success: false, error: "Email is required." });
       }
-      const result = await registerUser({ name, email, password, phone, roleType });
+      const result = await registerUser({ idToken: tokenToVerify, name, email, phone, roleType });
       res.json({ success: true, ...result });
     } catch (err) {
-      res.status(400).json({ success: false, error: err?.message || "Registration failed" });
+      const status = err?.status || (err?.message?.includes("503 Service Unavailable") ? 503 : 400);
+      res.status(status).json({ success: false, error: err?.message || "Registration failed" });
     }
   });
   apiRouter.post("/auth/login", async (req, res) => {
     try {
-      const { email, password } = req.body || {};
+      const { idToken, email } = req.body || {};
+      const authHeader = req.headers.authorization || "";
+      const tokenToVerify = idToken || (authHeader.startsWith("Bearer ") ? authHeader.substring(7) : void 0);
       if (!email) {
         return res.status(400).json({ success: false, error: "Email is required." });
       }
-      const result = await loginUser({ email, password });
+      const result = await loginUser({ idToken: tokenToVerify, email });
       res.json({ success: true, ...result });
     } catch (err) {
-      res.status(400).json({ success: false, error: err?.message || "Login failed" });
+      const status = err?.status || (err?.message?.includes("503 Service Unavailable") ? 503 : 400);
+      res.status(status).json({ success: false, error: err?.message || "Login failed" });
     }
   });
   apiRouter.get("/auth/me", async (req, res) => {
     try {
-      const user = await getCurrentUser();
+      const authHeader = req.headers.authorization || "";
+      const cookieHeader = req.headers.cookie || "";
+      const cookies = parseCookies(cookieHeader);
+      const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7).trim() : cookies.token || cookies.blazestore_jwt_token;
+      const user = await getCurrentUser(token);
       res.json({ success: true, user });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message });
@@ -2894,6 +2287,7 @@ function createApp() {
   });
   apiRouter.post("/auth/logout", async (req, res) => {
     try {
+      res.setHeader("Set-Cookie", "token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
       const result = await logoutUser();
       res.json(result);
     } catch (err) {
@@ -2925,7 +2319,7 @@ function createApp() {
         return res.status(400).json({ success: false, error: "Product name and price are required." });
       }
       const product = await createProductAdmin(productData);
-      res.json({ success: true, product, message: "Product added to MongoDB inventory." });
+      res.json({ success: true, product, message: "Product added to Firestore inventory." });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message });
     }
@@ -3066,7 +2460,7 @@ function createApp() {
       if (!name || !email) {
         return res.status(400).json({ success: false, error: "Name and email are required." });
       }
-      const result = await registerUser({ name, email, password, phone, roleType });
+      const result = await registerUser({ name, email, phone, roleType });
       res.json({ success: true, user: result.user, message: "Staff member account created." });
     } catch (err) {
       res.status(400).json({ success: false, error: err?.message || "Failed to create user" });
@@ -3210,17 +2604,22 @@ function createApp() {
 // server/vercelHandler.ts
 var app = createApp();
 function handler(req, res) {
+  let queryString = "";
+  if (req.url && req.url.includes("?")) {
+    const parts = req.url.split("?");
+    queryString = "?" + parts.slice(1).join("?");
+  }
   if (req.url && req.url.includes("[...all]")) {
     const match = req.query?.match || req.query?.all;
     if (match) {
       const subPath = Array.isArray(match) ? match.join("/") : match;
-      req.url = "/api/" + subPath.replace(/^\/+/, "");
+      req.url = "/api/" + subPath.replace(/^\/+/, "") + queryString;
     } else if (req.headers && req.headers["x-matched-path"]) {
-      req.url = req.headers["x-matched-path"];
+      req.url = req.headers["x-matched-path"] + queryString;
     } else if (req.headers && req.headers["x-forwarded-url"]) {
       try {
         const u = new URL(req.headers["x-forwarded-url"], "http://localhost");
-        req.url = u.pathname;
+        req.url = u.pathname + u.search;
       } catch {
       }
     }

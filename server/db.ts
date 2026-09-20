@@ -35,7 +35,9 @@ export function getRoleForEmail(email: string): { role: string; roleType: AdminR
 }
 
 // Persistent Disk Database Path
-const DB_DIR = path.join(process.cwd(), 'data');
+const DB_DIR = (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+  ? path.join('/tmp', 'data')
+  : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DB_DIR, 'blazestore_db.json');
 
 // In-memory collection cache keyed by collectionName -> Map<docId, document>

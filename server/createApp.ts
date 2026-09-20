@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import dotenv from 'dotenv';
 import { parseCookies, verifyFirebaseIdToken } from './auth';
 import {
@@ -106,6 +107,9 @@ export function createApp() {
     }
     express.urlencoded({ limit: '50mb', extended: true })(req, res, next);
   });
+
+  // Serve static public assets (favicon.svg, favicon.ico, etc.)
+  app.use(express.static(path.join(process.cwd(), 'public')));
 
   const apiRouter = express.Router();
 

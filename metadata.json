@@ -1,5 +1,5 @@
 {
-  "name": "Remix BlazeStore",
+  "name": "BlazeStore",
   "description": "Premium ecommerce platform featuring role-based dashboards and access control for Store Owner, Store Manager, and Customers, complete with real-time cloud data and secure checkout.",
   "requestFramePermissions": [],
   "majorCapabilities": [

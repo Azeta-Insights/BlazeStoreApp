@@ -91,6 +91,7 @@ export interface User {
   role?: string; // 'Store Owner' | 'Store Manager' | 'Club Member' | 'Customer'
   roleType?: AdminRole;
   createdAt?: string | Date;
+  updatedAt?: string | Date;
   totalOrders?: number;
   totalSpent?: number;
 }
@@ -161,6 +162,8 @@ export interface RefundRecord {
   restocked: boolean;
   approvedBy?: string;
   approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
 }
 
 export interface SalesAnalytics {

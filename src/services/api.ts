@@ -23,51 +23,29 @@ const fallbackOrders: Order[] = [];
 // Fallback refunds store
 const fallbackRefunds: RefundRecord[] = [];
 
-// Fallback users store
+// Fallback users store (only real admin profile templates, 0 orders/spent)
 const fallbackUsers: User[] = [
   {
     id: 'usr-1',
     name: 'Azeta Blessing',
     email: 'azetablessingb@gmail.com',
-    phone: '+1 (555) 234-5678',
+    phone: '',
     role: 'Store Owner',
     roleType: 'owner',
-    createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
-    totalOrders: 14,
-    totalSpent: 2850.0,
+    createdAt: new Date().toISOString(),
+    totalOrders: 0,
+    totalSpent: 0,
   },
   {
     id: 'usr-2',
     name: 'Blessing Waydiva',
     email: 'blessingwaydiva@blazestore.com',
-    phone: '+1 (555) 876-5432',
+    phone: '',
     role: 'Store Manager',
     roleType: 'manager',
-    createdAt: new Date(Date.now() - 25 * 86400000).toISOString(),
-    totalOrders: 8,
-    totalSpent: 1140.0,
-  },
-  {
-    id: 'usr-3',
-    name: 'Jordan Hayes',
-    email: 'jordan.hayes@example.com',
-    phone: '+1 (555) 345-9876',
-    role: 'Club Member',
-    roleType: 'customer',
-    createdAt: new Date(Date.now() - 15 * 86400000).toISOString(),
-    totalOrders: 5,
-    totalSpent: 890.0,
-  },
-  {
-    id: 'usr-4',
-    name: 'Sophia Martinez',
-    email: 'sophia.m@example.com',
-    phone: '+1 (555) 432-1098',
-    role: 'Customer',
-    roleType: 'customer',
-    createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-    totalOrders: 3,
-    totalSpent: 420.0,
+    createdAt: new Date().toISOString(),
+    totalOrders: 0,
+    totalSpent: 0,
   },
 ];
 
@@ -151,155 +129,14 @@ async function safeJsonFetch<T = any>(url: string, options?: RequestInit): Promi
 }
 
 // Fallback coupons store
-const fallbackCoupons: Coupon[] = [
-  {
-    id: 'cpn-1',
-    code: 'WELCOME10',
-    discountType: 'percentage',
-    discountValue: 10,
-    minOrderAmount: 30,
-    description: '10% off your entire order (Min $30 spend)',
-    isActive: true,
-    usedCount: 24,
-    usageLimit: 500,
-    createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
-  },
-  {
-    id: 'cpn-2',
-    code: 'FLASH20',
-    discountType: 'percentage',
-    discountValue: 20,
-    minOrderAmount: 100,
-    description: '20% off high-value orders over $100',
-    isActive: true,
-    usedCount: 52,
-    usageLimit: 200,
-    createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
-  },
-  {
-    id: 'cpn-3',
-    code: 'BLAZE15',
-    discountType: 'fixed',
-    discountValue: 15,
-    minOrderAmount: 75,
-    description: '$15 off orders of $75 or more',
-    isActive: true,
-    usedCount: 38,
-    usageLimit: 300,
-    createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-  },
-  {
-    id: 'cpn-4',
-    code: 'FREESHIP',
-    discountType: 'fixed',
-    discountValue: 12,
-    minOrderAmount: 40,
-    description: 'Free standard shipping discount ($12 savings)',
-    isActive: true,
-    usedCount: 89,
-    usageLimit: 1000,
-    createdAt: new Date(Date.now() - 21 * 86400000).toISOString(),
-  },
-];
+const fallbackCoupons: Coupon[] = [];
 
 // Fallback reviews store
-const fallbackReviews: Review[] = [
-  {
-    id: 'rev-1',
-    productId: '1',
-    userName: 'Sophia Montgomery',
-    userEmail: 'sophia.m@example.com',
-    rating: 5,
-    title: 'Outstanding quality and fit!',
-    comment: 'The denim jacket exceeded my expectations. The stitching is flawless, heavyweight yet comfortable, and looks even better in person.',
-    createdAt: new Date(Date.now() - 4 * 86400000).toISOString(),
-    images: [
-      'https://images.unsplash.com/photo-1544441893-675973e31985?w=500&auto=format&fit=crop&q=80',
-    ],
-    verifiedPurchase: true,
-    helpfulCount: 14,
-  },
-  {
-    id: 'rev-2',
-    productId: '1',
-    userName: 'David Vance',
-    userEmail: 'david.v@example.com',
-    rating: 4,
-    title: 'Very stylish piece',
-    comment: 'Great craftsmanship. Sizing runs just slightly large, so keep that in mind if you prefer a slim fit. Otherwise 10/10.',
-    createdAt: new Date(Date.now() - 8 * 86400000).toISOString(),
-    verifiedPurchase: true,
-    helpfulCount: 6,
-  },
-  {
-    id: 'rev-3',
-    productId: '2',
-    userName: 'Elena Rostova',
-    userEmail: 'elena.r@example.com',
-    rating: 5,
-    title: 'Silky smooth & elegant',
-    comment: 'Wore this to a dinner gala and received so many compliments. Luxurious fabric drape and gorgeous color hue.',
-    createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-    images: [
-      'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=500&auto=format&fit=crop&q=80',
-    ],
-    verifiedPurchase: true,
-    helpfulCount: 19,
-  },
-  {
-    id: 'rev-4',
-    productId: '3',
-    userName: 'Marcus Chen',
-    userEmail: 'marcus.c@example.com',
-    rating: 5,
-    title: 'Crystal clear ANC & deep bass',
-    comment: 'Battery life easily lasts 30+ hours. The active noise cancellation handles busy airport terminals with ease.',
-    createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-    verifiedPurchase: true,
-    helpfulCount: 22,
-  },
-  {
-    id: 'rev-5',
-    productId: '4',
-    userName: 'Jessica Miller',
-    userEmail: 'jess.m@example.com',
-    rating: 5,
-    title: 'Accurate tracking & sleek design',
-    comment: 'Tracks heart rate and sleep patterns reliably. The screen is bright under direct sunlight and the strap is super comfortable.',
-    createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-    verifiedPurchase: true,
-    helpfulCount: 9,
-  },
-];
+const fallbackReviews: Review[] = [];
 
 // Fallback saved addresses store
 const fallbackAddressesMap: Record<string, Address[]> = {
-  default: [
-    {
-      id: 'addr-1',
-      label: 'Home',
-      isDefault: true,
-      fullName: 'Azeta Blessing',
-      phone: '+1 (555) 234-5678',
-      street: '742 Evergreen Terrace',
-      city: 'Springfield',
-      state: 'OR',
-      zip: '97477',
-      country: 'United States',
-    },
-    {
-      id: 'addr-2',
-      label: 'Work',
-      isDefault: false,
-      fullName: 'Azeta Blessing (Office)',
-      phone: '+1 (555) 890-1234',
-      street: '100 Silicon Way, Suite 400',
-      city: 'San Francisco',
-      state: 'CA',
-      zip: '94105',
-      country: 'United States',
-    },
-  ],
+  default: [],
 };
 
 // Fallback announcement configuration
@@ -648,46 +485,35 @@ export const api = {
       console.warn('Analytics API fallback:', e);
     }
 
-    // Comprehensive client fallback calculated from catalog
+    // Accurate client fallback calculated from real data
     const totalProdCount = fallbackEnrichedProducts.length;
     const lowStock = fallbackEnrichedProducts.filter((p) => (p.stockQuantity ?? 0) <= 10 && (p.stockQuantity ?? 0) > 0).length;
     const outOfStock = fallbackEnrichedProducts.filter((p) => (p.stockQuantity ?? 0) === 0).length;
 
+    const grossRevenue = fallbackOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+    const refundAmountTotal = fallbackRefunds.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const netRevenue = Math.max(0, grossRevenue - refundAmountTotal);
+    const totalOrders = fallbackOrders.length;
+    const completedOrders = fallbackOrders.filter((o) => o.status === 'delivered' || (o as any).status === 'paid' || o.status === 'shipped').length;
+    const totalRefunds = fallbackRefunds.length;
+    const averageOrderValue = totalOrders > 0 ? grossRevenue / totalOrders : 0;
+    const totalCustomers = fallbackUsers.filter((u) => u.roleType === 'customer').length;
+
     return {
-      grossRevenue: 14850.5,
-      netRevenue: 13920.0,
-      totalOrders: 48,
-      completedOrders: 42,
-      totalRefunds: 3,
-      refundAmountTotal: 930.5,
-      averageOrderValue: 309.38,
+      grossRevenue,
+      netRevenue,
+      totalOrders,
+      completedOrders,
+      totalRefunds,
+      refundAmountTotal,
+      averageOrderValue,
       totalProducts: totalProdCount,
       lowStockCount: lowStock,
       outOfStockCount: outOfStock,
-      totalCustomers: 36,
-      dailyRevenue: [
-        { date: 'Mon', revenue: 1850, orders: 6, refunds: 0 },
-        { date: 'Tue', revenue: 2420, orders: 8, refunds: 1 },
-        { date: 'Wed', revenue: 1980, orders: 7, refunds: 0 },
-        { date: 'Thu', revenue: 3100, orders: 11, refunds: 1 },
-        { date: 'Fri', revenue: 2750, orders: 9, refunds: 0 },
-        { date: 'Sat', revenue: 1650, orders: 5, refunds: 1 },
-        { date: 'Sun', revenue: 1100, orders: 2, refunds: 0 },
-      ],
-      categorySales: [
-        { name: 'Fashion', value: 5200, count: 18 },
-        { name: 'Beauty', value: 3800, count: 12 },
-        { name: 'Electronics', value: 3200, count: 9 },
-        { name: 'Home & Living', value: 1720, count: 6 },
-        { name: 'Sports', value: 930, count: 3 },
-      ],
-      topProducts: fallbackEnrichedProducts.slice(0, 5).map((p, idx) => ({
-        id: p.id,
-        name: p.name,
-        salesCount: 15 - idx * 2,
-        revenue: (15 - idx * 2) * p.price,
-        stock: p.stockQuantity ?? 25,
-      })),
+      totalCustomers,
+      dailyRevenue: [],
+      categorySales: [],
+      topProducts: [],
     };
   },
 
@@ -753,22 +579,22 @@ export const api = {
 
   async createProduct(productData: Partial<Product>): Promise<Product> {
     const localProduct: Product = {
-      id: `prod-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `prod-${Date.now()}`,
       name: productData.name?.trim() || 'New Store Product',
       category: productData.category?.trim() || 'General',
-      price: Number(productData.price) || 29.99,
+      price: Number(productData.price) || 0,
       originalPrice: productData.originalPrice ? Number(productData.originalPrice) : undefined,
       costPrice: productData.costPrice ? Number(productData.costPrice) : undefined,
       discountPercentage: productData.discountPercentage || 0,
       rating: 5.0,
-      reviewCount: 1,
+      reviewCount: 0,
       image: productData.image?.trim() || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
-      badge: productData.badge || 'New',
+      badge: productData.badge || '',
       isHot: Boolean(productData.isHot),
-      description: productData.description?.trim() || 'High-quality curated item from BlazeStore catalog.',
+      description: productData.description?.trim() || '',
       inStock: productData.inStock !== false,
-      stockQuantity: Number(productData.stockQuantity) || 30,
-      sku: productData.sku?.trim() || `BLZ-${(productData.category || 'GEN').slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      stockQuantity: Number(productData.stockQuantity) || 0,
+      sku: productData.sku?.trim() || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -896,10 +722,10 @@ export const api = {
       rating: 5.0,
       reviewCount: 0,
       image: p.image?.trim() || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
-      description: p.description?.trim() || 'Genuine store inventory item.',
+      description: p.description?.trim() || '',
       inStock: p.inStock !== false && (Number(p.stockQuantity ?? 1) > 0),
-      stockQuantity: Number(p.stockQuantity) >= 0 ? Number(p.stockQuantity) : 10,
-      sku: p.sku?.trim() || `BLZ-${(p.category || 'GEN').slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      stockQuantity: Number(p.stockQuantity) >= 0 ? Number(p.stockQuantity) : 0,
+      sku: p.sku?.trim() || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }));

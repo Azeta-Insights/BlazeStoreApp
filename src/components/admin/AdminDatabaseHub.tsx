@@ -573,7 +573,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
           <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] p-4 border border-[#EDEDF2] dark:border-[#27272A]">
             <span className="text-[11px] font-bold text-[#8A8A94] uppercase tracking-wider block">`products`</span>
             <span className="text-2xl font-black mt-1 block text-[#7C6FE0]">
-              {status?.stats?.products ?? 12}
+              {status?.stats?.products ?? 0}
             </span>
             <span className="text-[10px] text-[#8A8A94]">Inventory Records</span>
           </div>
@@ -597,7 +597,7 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
           <div className="rounded-xl bg-[#FAF9FC] dark:bg-[#202024] p-4 border border-[#EDEDF2] dark:border-[#27272A]">
             <span className="text-[11px] font-bold text-[#8A8A94] uppercase tracking-wider block">`users`</span>
             <span className="text-2xl font-black mt-1 block text-[#34D399]">
-              {status?.stats?.users ?? 2}
+              {status?.stats?.users ?? 0}
             </span>
             <span className="text-[10px] text-[#8A8A94]">Admins &amp; Accounts</span>
           </div>

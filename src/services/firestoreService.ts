@@ -900,10 +900,10 @@ export async function getFirestoreStats(): Promise<{
 }> {
   try {
     const [prodSnap, orderSnap, refundSnap, userSnap] = await Promise.all([
-      getDocs(collection(firestore, 'products')).catch(() => ({ size: 12 })),
+      getDocs(collection(firestore, 'products')).catch(() => ({ size: 0 })),
       getDocs(collection(firestore, 'orders')).catch(() => ({ size: 0 })),
       getDocs(collection(firestore, 'refunds')).catch(() => ({ size: 0 })),
-      getDocs(collection(firestore, 'users')).catch(() => ({ size: 2 })),
+      getDocs(collection(firestore, 'users')).catch(() => ({ size: 0 })),
     ]);
 
     return {
@@ -916,10 +916,10 @@ export async function getFirestoreStats(): Promise<{
     };
   } catch {
     return {
-      products: 12,
+      products: 0,
       orders: 0,
       refunds: 0,
-      users: 2,
+      users: 0,
       cart: 0,
       wishlist: 0,
     };

@@ -48,6 +48,7 @@ import { InvoiceModal } from './components/InvoiceModal';
 import { AddressBookModal } from './components/AddressBookModal';
 import { Product, CartItem, NotificationItem, User, AnnouncementConfig, Order } from './types';
 import { api, DbStatus } from './services/api';
+import { matchProductCategory } from './utils/categoryMatcher';
 
 export default function App() {
   // Page Routing: 'store' | 'owner_dashboard' | 'manager_dashboard'
@@ -180,50 +181,78 @@ export default function App() {
     return Array.from(map.values());
   }, [dealsProducts, recProducts]);
 
+  // Product state loader & sync function
+  const refreshStoreProducts = async () => {
+    try {
+      const bootstrap = await api.getBootstrap();
+      if (bootstrap) {
+        if (bootstrap.dbStatus) setDbStatus(bootstrap.dbStatus);
+        const allProds = bootstrap.products || [...(bootstrap.deals || []), ...(bootstrap.recommended || [])];
+        let deals = (bootstrap.deals && bootstrap.deals.length > 0)
+          ? bootstrap.deals
+          : allProds.filter((p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15));
+        let rec = (bootstrap.recommended && bootstrap.recommended.length > 0)
+          ? bootstrap.recommended
+          : allProds.filter((p) => !deals.some((d) => d.id === p.id));
+
+        if (deals.length === 0 && allProds.length > 0) {
+          const mid = Math.ceil(allProds.length / 2);
+          deals = allProds.slice(0, mid);
+          rec = allProds.slice(mid);
+        }
+
+        setDealsProducts(deals);
+        setRecProducts(rec);
+        if (bootstrap.announcement) setAnnouncementConfig(bootstrap.announcement);
+        if (bootstrap.notifications && bootstrap.notifications.length > 0) setNotifications(bootstrap.notifications);
+        if (bootstrap.currentUser) setCurrentUser(bootstrap.currentUser);
+      }
+    } catch (err) {
+      console.warn('Store product sync:', err);
+    }
+  };
+
+  // Re-sync catalog when switching back to storefront or on inventory updates
+  useEffect(() => {
+    if (currentPage === 'store') {
+      refreshStoreProducts();
+    }
+  }, [currentPage]);
+
+  // Listen to custom global product update events dispatched by CSV import or inventory edits
+  useEffect(() => {
+    const handleProductsUpdated = () => {
+      refreshStoreProducts();
+    };
+    window.addEventListener('blazestore:products_updated', handleProductsUpdated);
+    return () => {
+      window.removeEventListener('blazestore:products_updated', handleProductsUpdated);
+    };
+  }, []);
+
   // Consolidated Initial Bootstrap Data Load
   useEffect(() => {
     async function initData() {
-      // 1. Instantaneous offline/cache hydration from localStorage (ignoring legacy mock cache)
+      // 1. Instantaneous offline/cache hydration from localStorage
       try {
         const cached = localStorage.getItem('blazestore_bootstrap_cache');
         if (cached) {
           const parsed = JSON.parse(cached)?.data;
           if (parsed) {
             if (parsed.dbStatus) setDbStatus(parsed.dbStatus);
-            if (Array.isArray(parsed.deals)) {
-              setDealsProducts(parsed.deals.filter((p: any) => !p.id.startsWith('deal-')));
+            if (Array.isArray(parsed.deals) && parsed.deals.length > 0) {
+              setDealsProducts(parsed.deals);
             }
-            if (Array.isArray(parsed.recommended)) {
-              setRecProducts(parsed.recommended.filter((p: any) => !p.id.startsWith('rec-')));
+            if (Array.isArray(parsed.recommended) && parsed.recommended.length > 0) {
+              setRecProducts(parsed.recommended);
             }
             if (parsed.announcement) setAnnouncementConfig(parsed.announcement);
           }
         }
       } catch {}
 
-      // 2. Fetch fresh consolidated bootstrap data in a single round-trip
-      try {
-        const bootstrap = await api.getBootstrap();
-        if (bootstrap) {
-          if (bootstrap.dbStatus) setDbStatus(bootstrap.dbStatus);
-          setDealsProducts(bootstrap.deals || []);
-          setRecProducts(bootstrap.recommended || []);
-          if (bootstrap.announcement) setAnnouncementConfig(bootstrap.announcement);
-          if (bootstrap.notifications && bootstrap.notifications.length > 0) setNotifications(bootstrap.notifications);
-          if (bootstrap.currentUser) {
-            setCurrentUser(bootstrap.currentUser);
-          }
-          // If server cart exists and local was empty, populate from server
-          if (bootstrap.cart && bootstrap.cart.length > 0 && cart.length === 0) {
-            setCart(bootstrap.cart);
-          }
-          if (bootstrap.wishlist && bootstrap.wishlist.length > 0 && wishlist.length === 0) {
-            setWishlist(bootstrap.wishlist);
-          }
-        }
-      } catch (err) {
-        console.warn('Initial bootstrap data load:', err);
-      }
+      // 2. Fetch fresh consolidated bootstrap data
+      await refreshStoreProducts();
     }
 
     initData();
@@ -495,9 +524,7 @@ export default function App() {
         !searchQuery ||
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.category.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchCat =
-        selectedCategory === 'all' ||
-        p.category.toLowerCase().includes(selectedCategory.toLowerCase());
+      const matchCat = matchProductCategory(p.category, selectedCategory);
       return matchSearch && matchCat;
     });
   }, [dealsProducts, searchQuery, selectedCategory]);
@@ -508,9 +535,7 @@ export default function App() {
         !searchQuery ||
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.category.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchCat =
-        selectedCategory === 'all' ||
-        p.category.toLowerCase().includes(selectedCategory.toLowerCase());
+      const matchCat = matchProductCategory(p.category, selectedCategory);
       return matchSearch && matchCat;
     });
   }, [recProducts, searchQuery, selectedCategory]);

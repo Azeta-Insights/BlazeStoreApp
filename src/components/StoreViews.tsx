@@ -28,6 +28,7 @@ import {
 import { Product, Category, User, Order } from '../types';
 import { ProductCard } from './ProductCard';
 import { CATEGORIES } from '../data/mockData';
+import { matchProductCategory } from '../utils/categoryMatcher';
 
 interface StoreViewsProps {
   activeTab: string;
@@ -216,47 +217,7 @@ export const StoreViews: React.FC<StoreViewsProps> = ({
 
     // Filter by Category
     if (selectedCategory !== 'all') {
-      const catSearch = selectedCategory.toLowerCase().replace(/-/g, ' ');
-      list = list.filter((p) => {
-        const pCat = (p.category || '').toLowerCase();
-        if (selectedCategory === 'phones-tablets' || selectedCategory === 'electronics') {
-          return pCat.includes('phone') || pCat.includes('tablet') || pCat.includes('electronic') || pCat.includes('mobile');
-        }
-        if (selectedCategory === 'appliances') {
-          return pCat.includes('appliance') || pCat.includes('home') || pCat.includes('kitchen');
-        }
-        if (selectedCategory === 'kids-baby') {
-          return pCat.includes('kid') || pCat.includes('baby') || pCat.includes('child') || pCat.includes('toy');
-        }
-        if (selectedCategory === 'fashion') {
-          return pCat.includes('fashion') || pCat.includes('cloth') || pCat.includes('apparel');
-        }
-        if (selectedCategory === 'beauty') {
-          return pCat.includes('beauty') || pCat.includes('skin') || pCat.includes('cosmetic');
-        }
-        if (selectedCategory === 'sneakers' || selectedCategory === 'sports') {
-          return pCat.includes('sneaker') || pCat.includes('shoe') || pCat.includes('sport') || pCat.includes('footwear');
-        }
-        if (selectedCategory === 'television') {
-          return pCat.includes('tv') || pCat.includes('television') || pCat.includes('screen');
-        }
-        if (selectedCategory === 'home-office') {
-          return pCat.includes('office') || pCat.includes('desk') || pCat.includes('furniture');
-        }
-        if (selectedCategory === 'supermarket') {
-          return pCat.includes('supermarket') || pCat.includes('grocery') || pCat.includes('food') || pCat.includes('pantry');
-        }
-        if (selectedCategory === 'mobile-accessories') {
-          return pCat.includes('accessory') || pCat.includes('accessories') || pCat.includes('charger') || pCat.includes('headphone');
-        }
-        if (selectedCategory === 'computing') {
-          return pCat.includes('comput') || pCat.includes('laptop') || pCat.includes('pc');
-        }
-        if (selectedCategory === 'sillage-and-olfactory') {
-          return pCat.includes('sillage') || pCat.includes('olfactory') || pCat.includes('perfume') || pCat.includes('fragrance') || pCat.includes('brand');
-        }
-        return pCat.includes(selectedCategory.toLowerCase()) || pCat.includes(catSearch);
-      });
+      list = list.filter((p) => matchProductCategory(p.category, selectedCategory));
     }
 
     // In Stock filter
@@ -342,15 +303,7 @@ export const StoreViews: React.FC<StoreViewsProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3.5">
           {CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat.id;
-            const nameLower = cat.name.toLowerCase();
-            const idLower = cat.id.toLowerCase();
-            const catCount = allProductsList.filter((p) => {
-              const pCat = (p.category || '').toLowerCase();
-              if (idLower === 'sillage-and-olfactory') {
-                return pCat.includes('sillage') || pCat.includes('olfactory') || pCat.includes('perfume') || pCat.includes('layering');
-              }
-              return pCat === nameLower || pCat.includes(idLower) || (idLower === 'home' && pCat.includes('home'));
-            }).length;
+            const catCount = allProductsList.filter((p) => matchProductCategory(p.category, cat.id) || matchProductCategory(p.category, cat.name)).length;
 
             return (
               <button

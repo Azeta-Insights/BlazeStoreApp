@@ -211,16 +211,50 @@ export async function clearAllProductsAdmin(): Promise<{ success: boolean; messa
   return { success: true, message: 'All products cleared from Firestore.' };
 }
 
-export async function bulkCreateProductsAdmin(products: Partial<Product>[]): Promise<{ success: boolean; count: number }> {
-  let count = 0;
+export async function bulkCreateProductsAdmin(products: Partial<Product>[]): Promise<{ success: boolean; count: number; products: Product[] }> {
+  const createdList: Product[] = [];
   await Promise.all(
-    products.map(async (p) => {
-      const id = p.id || `prod-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      await saveDocument('products', id, { ...p, id, createdAt: new Date().toISOString() });
-      count++;
+    products.map(async (p, idx) => {
+      const id = p.id || `prod-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
+      const price = Number(p.price) || 0;
+      const originalPrice = p.originalPrice ? Number(p.originalPrice) : (p.discountPercentage ? Math.round(price * (100 / (100 - (p.discountPercentage || 0)))) : undefined);
+      let discountPercentage = p.discountPercentage;
+      if (!discountPercentage && originalPrice && originalPrice > price) {
+        discountPercentage = Math.round(((originalPrice - price) / originalPrice) * 100);
+      }
+      const isDeal = Boolean(p.isDeal) || Boolean(p.isHot) || (discountPercentage !== undefined && discountPercentage > 0);
+
+      const newProduct: Product = {
+        id,
+        name: (p.name || 'Product').trim(),
+        category: (p.category || 'General').trim(),
+        brand: p.brand?.trim() || undefined,
+        collection: p.collection?.trim() || undefined,
+        price,
+        originalPrice,
+        costPrice: p.costPrice ? Number(p.costPrice) : Math.round(price * 0.55),
+        discountPercentage: discountPercentage || undefined,
+        stockQuantity: p.stockQuantity !== undefined ? Number(p.stockQuantity) : 25,
+        sku: p.sku?.trim() || `BLZ-${Date.now().toString().slice(-4)}-${idx + 1}`,
+        inStock: p.inStock ?? ((Number(p.stockQuantity ?? 25)) > 0),
+        image: p.image?.trim() || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80',
+        description: p.description?.trim() || '',
+        rating: p.rating || 5.0,
+        reviewCount: p.reviewCount || 0,
+        badge: p.badge?.trim() || (isDeal ? (discountPercentage ? `${discountPercentage}% OFF` : 'Hot Deal') : (p.isNewArrival ? 'New Arrival' : 'In Stock')),
+        isDeal,
+        isBestSeller: Boolean(p.isBestSeller),
+        isNewArrival: Boolean(p.isNewArrival),
+        isHot: Boolean(p.isHot) || isDeal,
+        colors: p.colors,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveDocument('products', id, newProduct);
+      createdList.push(newProduct);
     })
   );
-  return { success: true, count };
+  return { success: true, count: createdList.length, products: createdList };
 }
 
 // 3. Cart & Wishlist

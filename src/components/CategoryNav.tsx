@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { CATEGORIES } from '../data/mockData';
 import { Product } from '../types';
+import { matchProductCategory } from '../utils/categoryMatcher';
 
 interface CategoryNavProps {
   selectedCategory: string;
@@ -48,48 +49,7 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
   const getItemCount = (catId: string, catName: string) => {
     if (!products || products.length === 0) return 0;
     if (catId === 'all') return products.length;
-    const nameLower = catName.toLowerCase();
-    const idLower = catId.toLowerCase();
-    return products.filter((p) => {
-      const pCat = (p.category || '').toLowerCase();
-      if (idLower === 'phones-tablets' || idLower === 'electronics') {
-        return pCat.includes('phone') || pCat.includes('tablet') || pCat.includes('electronic') || pCat.includes('mobile');
-      }
-      if (idLower === 'appliances') {
-        return pCat.includes('appliance') || pCat.includes('home') || pCat.includes('kitchen');
-      }
-      if (idLower === 'kids-baby') {
-        return pCat.includes('kid') || pCat.includes('baby') || pCat.includes('child') || pCat.includes('toy');
-      }
-      if (idLower === 'fashion') {
-        return pCat.includes('fashion') || pCat.includes('cloth') || pCat.includes('apparel');
-      }
-      if (idLower === 'beauty') {
-        return pCat.includes('beauty') || pCat.includes('skin') || pCat.includes('cosmetic');
-      }
-      if (idLower === 'sneakers' || idLower === 'sports') {
-        return pCat.includes('sneaker') || pCat.includes('shoe') || pCat.includes('sport') || pCat.includes('footwear');
-      }
-      if (idLower === 'television') {
-        return pCat.includes('tv') || pCat.includes('television') || pCat.includes('screen');
-      }
-      if (idLower === 'home-office') {
-        return pCat.includes('office') || pCat.includes('desk') || pCat.includes('furniture');
-      }
-      if (idLower === 'supermarket') {
-        return pCat.includes('supermarket') || pCat.includes('grocery') || pCat.includes('food') || pCat.includes('pantry');
-      }
-      if (idLower === 'mobile-accessories') {
-        return pCat.includes('accessory') || pCat.includes('accessories') || pCat.includes('charger') || pCat.includes('headphone');
-      }
-      if (idLower === 'computing') {
-        return pCat.includes('comput') || pCat.includes('laptop') || pCat.includes('pc');
-      }
-      if (idLower === 'sillage-and-olfactory') {
-        return pCat.includes('sillage') || pCat.includes('olfactory') || pCat.includes('perfume') || pCat.includes('fragrance') || pCat.includes('brand');
-      }
-      return pCat === nameLower || pCat.includes(idLower);
-    }).length;
+    return products.filter((p) => matchProductCategory(p.category, catId) || matchProductCategory(p.category, catName)).length;
   };
 
   return (

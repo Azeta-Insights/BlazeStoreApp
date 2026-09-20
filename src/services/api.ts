@@ -692,11 +692,19 @@ export const api = {
     } catch (e) {
       console.warn('Server clear products error:', e);
     }
+    try {
+      localStorage.removeItem('blazestore_bootstrap_cache');
+      window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: [] } }));
+    } catch {}
     fallbackEnrichedProducts = [];
     return { success: true, deletedCount: 0, message: 'All inventory items cleared.' };
   },
 
   async bulkImportProducts(products: Partial<Product>[]): Promise<{ success: boolean; count: number; products: Product[] }> {
+    try {
+      localStorage.removeItem('blazestore_bootstrap_cache');
+    } catch {}
+
     try {
       const res = await fetch('/api/admin/products/bulk-import', {
         method: 'POST',
@@ -705,31 +713,47 @@ export const api = {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.products && Array.isArray(data.products)) {
-          fallbackEnrichedProducts.unshift(...data.products);
+        if (data.products && Array.isArray(data.products) && data.products.length > 0) {
+          fallbackEnrichedProducts = [...data.products, ...fallbackEnrichedProducts.filter(p => !data.products.some((np: Product) => np.id === p.id))];
+          try {
+            window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: data.products } }));
+          } catch {}
           return data;
         }
       }
     } catch (e) {
-      console.warn('Server bulk import error:', e);
+      console.warn('Server bulk import error, using local generator:', e);
     }
     const createdItems: Product[] = (products || []).map((p, idx) => ({
       id: p.id || `prod-${Date.now()}-${idx}`,
       name: p.name?.trim() || 'New Item',
       category: p.category?.trim() || 'General',
+      brand: p.brand?.trim() || undefined,
+      collection: p.collection?.trim() || undefined,
       price: Number(p.price) || 0,
+      originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined,
       costPrice: p.costPrice ? Number(p.costPrice) : Number((Number(p.price || 0) * 0.55).toFixed(2)),
-      rating: 5.0,
-      reviewCount: 0,
+      discountPercentage: p.discountPercentage || (p.originalPrice && Number(p.originalPrice) > Number(p.price) ? Math.round(((Number(p.originalPrice) - Number(p.price)) / Number(p.originalPrice)) * 100) : undefined),
+      rating: p.rating || 5.0,
+      reviewCount: p.reviewCount || 0,
       image: p.image?.trim() || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
       description: p.description?.trim() || '',
+      badge: p.badge || (p.discountPercentage ? `${p.discountPercentage}% OFF` : undefined),
+      isDeal: Boolean(p.isDeal) || (p.discountPercentage ? p.discountPercentage > 0 : false),
+      isBestSeller: Boolean(p.isBestSeller),
+      isNewArrival: Boolean(p.isNewArrival),
+      isHot: Boolean(p.isHot),
+      colors: p.colors,
       inStock: p.inStock !== false && (Number(p.stockQuantity ?? 1) > 0),
-      stockQuantity: Number(p.stockQuantity) >= 0 ? Number(p.stockQuantity) : 0,
-      sku: p.sku?.trim() || '',
+      stockQuantity: Number(p.stockQuantity) >= 0 ? Number(p.stockQuantity) : 25,
+      sku: p.sku?.trim() || `BLZ-${Date.now().toString().slice(-4)}-${idx + 1}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }));
-    fallbackEnrichedProducts.unshift(...createdItems);
+    fallbackEnrichedProducts = [...createdItems, ...fallbackEnrichedProducts.filter(p => !createdItems.some(ci => ci.id === p.id))];
+    try {
+      window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: createdItems } }));
+    } catch {}
     return { success: true, count: createdItems.length, products: createdItems };
   },
 

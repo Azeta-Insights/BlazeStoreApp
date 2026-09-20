@@ -139,8 +139,14 @@ export function createApp() {
         getCurrentUser(token).catch(() => null),
       ]);
 
-      const deals = (products || []).filter((p) => p.discountPercentage && p.discountPercentage >= 25);
-      const recommended = (products || []).filter((p) => !p.discountPercentage || p.discountPercentage < 25);
+      let deals = (products || []).filter((p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15));
+      let recommended = (products || []).filter((p) => !deals.some((d) => d.id === p.id));
+
+      if (deals.length === 0 && (products || []).length > 0) {
+        const mid = Math.ceil((products || []).length / 2);
+        deals = (products || []).slice(0, mid);
+        recommended = (products || []).slice(mid);
+      }
 
       const paymentConfig = {
         currency: 'NGN',

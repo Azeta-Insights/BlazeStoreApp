@@ -28,50 +28,9 @@ import { ImageUploader } from '../ImageUploader';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
 import { formatNaira } from '../../lib/currency';
 import { CATEGORIES } from '../../data/mockData';
+import { normalizeCategoryName } from '../../utils/categoryMatcher';
 
-export const normalizeCategoryName = (inputCat?: string): string => {
-  if (!inputCat || !inputCat.trim()) return 'Phones & Tablets';
-  const clean = inputCat.trim().toLowerCase();
-
-  if (clean.includes('phone') || clean.includes('tablet') || clean.includes('mobile phone') || clean.includes('electronics')) {
-    return 'Phones & Tablets';
-  }
-  if (clean.includes('appliance') || clean.includes('fridge') || clean.includes('freezer') || clean.includes('cooker') || clean.includes('oven')) {
-    return 'Appliances';
-  }
-  if (clean.includes('kid') || clean.includes('baby') || clean.includes('child') || clean.includes('toy')) {
-    return 'Kids & Baby';
-  }
-  if (clean.includes('fashion') || clean.includes('cloth') || clean.includes('dress') || clean.includes('shirt') || clean.includes('apparel')) {
-    return 'Fashion';
-  }
-  if (clean.includes('beauty') || clean.includes('skin') || clean.includes('makeup') || clean.includes('cosmetic')) {
-    return 'Beauty';
-  }
-  if (clean.includes('sneaker') || clean.includes('shoe') || clean.includes('footwear') || clean.includes('sports')) {
-    return 'Sneakers';
-  }
-  if (clean.includes('tv') || clean.includes('television') || clean.includes('screen') || clean.includes('display')) {
-    return 'Television';
-  }
-  if (clean.includes('office') || clean.includes('home & office') || clean.includes('furniture') || clean.includes('desk')) {
-    return 'Home & Office';
-  }
-  if (clean.includes('supermarket') || clean.includes('grocery') || clean.includes('food') || clean.includes('pantry') || clean.includes('coffee')) {
-    return 'Supermarket';
-  }
-  if (clean.includes('accessory') || clean.includes('accessories') || clean.includes('charger') || clean.includes('power bank') || clean.includes('case')) {
-    return 'Mobile Accessories';
-  }
-  if (clean.includes('comput') || clean.includes('laptop') || clean.includes('pc') || clean.includes('macbook')) {
-    return 'Computing';
-  }
-  if (clean.includes('sillage') || clean.includes('olfactory') || clean.includes('perfume') || clean.includes('fragrance') || clean.includes('brand festival') || clean.includes('eau de')) {
-    return 'Sillage & Olfactory';
-  }
-
-  return inputCat.trim();
-};
+export { normalizeCategoryName };
 
 interface AdminInventoryProps {
   adminRole: AdminRole;
@@ -580,13 +539,18 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
 
         if (newItems.length > 0) {
           const res = await api.bulkImportProducts(newItems);
-          if (res.products && res.products.length > 0) {
-            setProducts((prev) => [...res.products, ...prev]);
-            for (const p of res.products) {
+          const imported = res.products && res.products.length > 0 ? res.products : (newItems as Product[]);
+          setProducts((prev) => [...imported, ...prev.filter((p) => !imported.some((ip) => ip.id === p.id))]);
+          for (const p of imported) {
+            if (p.id) {
               await saveFirestoreDoc('products', p.id, p).catch(() => {});
             }
-            onShowToast(`🚀 Successfully imported ${res.products.length} segmented products with Brands & Collections!`);
           }
+          try {
+            localStorage.removeItem('blazestore_bootstrap_cache');
+            window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: imported } }));
+          } catch {}
+          onShowToast(`🚀 Successfully imported ${imported.length} products with immediate Storefront & Category sync!`);
         } else {
           onShowToast('⚠️ Could not parse valid product rows from CSV.');
         }

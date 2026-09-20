@@ -47,10 +47,10 @@ import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { InvoiceModal } from './components/InvoiceModal';
 import { AddressBookModal } from './components/AddressBookModal';
 import { Product, CartItem, NotificationItem, User, AnnouncementConfig, Order } from './types';
-import { api, DbStatus } from './services/api';
+import { api, DbStatus, saveLocalInventoryCache, getCachedProducts } from './services/api';
 import { auth } from './lib/firebase';
-import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
-import { getRoleForEmail } from './services/firestoreService';
+import { onAuthStateChanged, onIdTokenChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { getRoleForEmail, subscribeProductsFromFirestore } from './services/firestoreService';
 import { matchProductCategory } from './utils/categoryMatcher';
 
 export default function App() {
@@ -200,21 +200,36 @@ export default function App() {
       if (bootstrap) {
         if (bootstrap.dbStatus) setDbStatus(bootstrap.dbStatus);
         const allProds = bootstrap.products || [...(bootstrap.deals || []), ...(bootstrap.recommended || [])];
-        let deals = (bootstrap.deals && bootstrap.deals.length > 0)
-          ? bootstrap.deals
-          : allProds.filter((p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15));
-        let rec = (bootstrap.recommended && bootstrap.recommended.length > 0)
-          ? bootstrap.recommended
-          : allProds.filter((p) => !deals.some((d) => d.id === p.id));
+        let deals: Product[] = [];
+        let rec: Product[] = [];
 
-        if (deals.length === 0 && allProds.length > 0) {
-          const mid = Math.ceil(allProds.length / 2);
-          deals = allProds.slice(0, mid);
-          rec = allProds.slice(mid);
+        if (allProds && allProds.length > 0) {
+          deals = (bootstrap.deals && bootstrap.deals.length > 0)
+            ? bootstrap.deals
+            : allProds.filter((p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15));
+          rec = (bootstrap.recommended && bootstrap.recommended.length > 0)
+            ? bootstrap.recommended
+            : allProds.filter((p) => !deals.some((d) => d.id === p.id));
+
+          if (deals.length === 0 && allProds.length > 0) {
+            const mid = Math.ceil(allProds.length / 2);
+            deals = allProds.slice(0, mid);
+            rec = allProds.slice(mid);
+          }
+          setDealsProducts(deals);
+          setRecProducts(rec);
+          saveLocalInventoryCache(allProds);
+        } else {
+          // If server returned 0 items temporarily, preserve local cached items if available
+          const cached = getCachedProducts();
+          if (cached && cached.length > 0) {
+            const cDeals = cached.filter((p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15));
+            const cRec = cached.filter((p) => !cDeals.some((d) => d.id === p.id));
+            setDealsProducts(cDeals.length > 0 ? cDeals : cached.slice(0, Math.ceil(cached.length / 2)));
+            setRecProducts(cRec.length > 0 ? cRec : cached.slice(Math.ceil(cached.length / 2)));
+          }
         }
 
-        setDealsProducts(deals);
-        setRecProducts(rec);
         if (bootstrap.announcement) setAnnouncementConfig(bootstrap.announcement);
         if (bootstrap.notifications && bootstrap.notifications.length > 0) setNotifications(bootstrap.notifications);
         if (bootstrap.currentUser) setCurrentUser(bootstrap.currentUser);
@@ -231,9 +246,44 @@ export default function App() {
     }
   }, [currentPage]);
 
+  // Live Firestore subscription for real-time storefront synchronization
+  useEffect(() => {
+    const unsubscribe = subscribeProductsFromFirestore(
+      (items) => {
+        if (items && items.length > 0) {
+          const deals = items.filter(
+            (p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15)
+          );
+          const rec = items.filter((p) => !deals.some((d) => d.id === p.id));
+          setDealsProducts(deals.length > 0 ? deals : items.slice(0, Math.ceil(items.length / 2)));
+          setRecProducts(rec.length > 0 ? rec : items.slice(Math.ceil(items.length / 2)));
+          saveLocalInventoryCache(items);
+        }
+      },
+      (err) => {
+        console.warn('Real-time products sync active with server API fallback:', err?.message || err);
+        refreshStoreProducts();
+      }
+    );
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
   // Listen to custom global product update events dispatched by CSV import or inventory edits
   useEffect(() => {
-    const handleProductsUpdated = () => {
+    const handleProductsUpdated = (e?: any) => {
+      if (e?.detail?.products && Array.isArray(e.detail.products) && e.detail.products.length > 0) {
+        const prods: Product[] = e.detail.products;
+        const deals = prods.filter(
+          (p) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15)
+        );
+        const rec = prods.filter((p) => !deals.some((d) => d.id === p.id));
+        setDealsProducts(deals.length > 0 ? deals : prods.slice(0, Math.ceil(prods.length / 2)));
+        setRecProducts(rec.length > 0 ? rec : prods.slice(Math.ceil(prods.length / 2)));
+        saveLocalInventoryCache(prods);
+      }
       refreshStoreProducts();
     };
     window.addEventListener('blazestore:products_updated', handleProductsUpdated);
@@ -330,9 +380,9 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Firebase Auth State Listener to sync user across page refreshes and re-logins
+  // Firebase Auth State & Token Refresh Listener to sync user and tokens across refreshes
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    const unsubscribe = onIdTokenChanged(auth, async (fbUser) => {
       if (fbUser && !fbUser.isAnonymous) {
         try {
           const token = await fbUser.getIdToken();
@@ -1356,6 +1406,7 @@ export default function App() {
         onPlaceOrder={handlePlaceOrder}
         isDarkMode={isDarkMode}
         onShowToast={showToast}
+        onNavigateTab={(tab) => setActiveTab(tab)}
       />
 
 

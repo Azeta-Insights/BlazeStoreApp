@@ -30,8 +30,12 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<DecodedAut
       role: (decoded.role as string) || undefined,
       roleType: (decoded.roleType as string) || undefined,
     };
-  } catch (err) {
-    console.warn('[Server Auth] Firebase ID token verification failed:', (err as Error)?.message || err);
+  } catch (err: any) {
+    if (err?.code === 'auth/id-token-expired' || err?.message?.includes('expired')) {
+      console.log('[Server Auth] Notice: Firebase ID token has expired. Request will fall back to public/cached permissions or prompt token refresh.');
+    } else {
+      console.warn('[Server Auth] Token verification notice:', err?.message || err);
+    }
     return null;
   }
 }

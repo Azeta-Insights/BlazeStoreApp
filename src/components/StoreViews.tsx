@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
   Flame,
@@ -23,12 +23,24 @@ import {
   SlidersHorizontal,
   Plus,
   Trash2,
-  DollarSign
+  DollarSign,
+  RefreshCw,
+  FileText,
+  CheckCircle2,
+  CreditCard,
+  Calendar,
+  RotateCcw,
+  HelpCircle,
+  ShoppingBag
 } from 'lucide-react';
 import { Product, Category, User, Order } from '../types';
 import { ProductCard } from './ProductCard';
 import { CATEGORIES } from '../data/mockData';
 import { matchProductCategory } from '../utils/categoryMatcher';
+import { api } from '../services/api';
+import { formatNaira } from '../lib/currency';
+import { OrderTrackingModal } from './OrderTrackingModal';
+import { InvoiceModal } from './InvoiceModal';
 
 interface StoreViewsProps {
   activeTab: string;
@@ -96,6 +108,38 @@ export const StoreViews: React.FC<StoreViewsProps> = ({
     zip: '',
     phone: '',
   });
+
+  // Orders & Tracking States
+  const [userOrders, setUserOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [orderFilterStatus, setOrderFilterStatus] = useState<string>('all');
+  const [orderSearchText, setOrderSearchText] = useState<string>('');
+  const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
+  const [selectedTrackingOrderId, setSelectedTrackingOrderId] = useState<string>('');
+  const [trackingModalOpen, setTrackingModalOpen] = useState(false);
+
+  const fetchUserOrders = async () => {
+    setOrdersLoading(true);
+    try {
+      const list = await api.getMyOrders(currentUser?.id, currentUser?.email);
+      setUserOrders(list);
+    } catch (err) {
+      console.warn('Failed to fetch user orders:', err);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUserOrders();
+    const handleOrderPlaced = () => {
+      fetchUserOrders();
+    };
+    window.addEventListener('blazestore:order_placed', handleOrderPlaced);
+    return () => {
+      window.removeEventListener('blazestore:order_placed', handleOrderPlaced);
+    };
+  }, [currentUser?.id, currentUser?.email, activeTab]);
 
   // All combined unique products (MUST be declared BEFORE dynamicBrands / dynamicCollections)
   const allProductsList = useMemo(() => {
@@ -767,40 +811,433 @@ export const StoreViews: React.FC<StoreViewsProps> = ({
 
   // 8. MY ORDERS VIEW
   if (activeTab === 'orders') {
+    const filteredOrders = userOrders.filter((order) => {
+      // Status Filter
+      if (orderFilterStatus === 'processing' && order.status !== 'processing' && order.status !== 'pending') return false;
+      if (orderFilterStatus === 'shipped' && order.status !== 'shipped') return false;
+      if (orderFilterStatus === 'delivered' && order.status !== 'delivered') return false;
+
+      // Search query filter
+      if (orderSearchText.trim()) {
+        const q = orderSearchText.toLowerCase();
+        const matchId = (order.orderId || order.id || '').toLowerCase().includes(q);
+        const matchRef = (order.paymentRef || '').toLowerCase().includes(q);
+        const matchCustomer = (order.customer?.name || '').toLowerCase().includes(q) || (order.customer?.email || '').toLowerCase().includes(q);
+        const matchItems = (order.items || []).some((item) => (item.name || '').toLowerCase().includes(q));
+        return matchId || matchRef || matchCustomer || matchItems;
+      }
+
+      return true;
+    });
+
+    const processingCount = userOrders.filter((o) => o.status === 'processing' || o.status === 'pending').length;
+    const shippedCount = userOrders.filter((o) => o.status === 'shipped').length;
+    const deliveredCount = userOrders.filter((o) => o.status === 'delivered').length;
+
+    const handleReorder = (order: Order) => {
+      let count = 0;
+      (order.items || []).forEach((item) => {
+        const prod = allProductsList.find((p) => p.id === item.productId || p.id === item.id) || {
+          id: item.productId || item.id,
+          name: item.name,
+          price: item.price,
+          originalPrice: item.price,
+          image: item.image,
+          rating: 4.8,
+          reviewsCount: 12,
+          category: 'All',
+          inStock: true,
+          stockQuantity: 50,
+          isNew: false,
+          isBestSeller: false,
+        };
+        onAddToCart(prod as Product, item.color, item.quantity || 1);
+        count += item.quantity || 1;
+      });
+      onShowToast(`Added ${count} item${count === 1 ? '' : 's'} from Order #${order.orderId || order.id} to your cart!`);
+    };
+
     return (
-      <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EDEDF2] dark:border-[#27272A] pb-4">
+      <div className="space-y-6 animate-fade-in pb-12">
+        {/* Tracking Modal */}
+        {trackingModalOpen && (
+          <OrderTrackingModal
+            isOpen={trackingModalOpen}
+            onClose={() => setTrackingModalOpen(false)}
+            initialOrderId={selectedTrackingOrderId}
+            onShowToast={onShowToast}
+          />
+        )}
+
+        {/* Invoice Modal */}
+        {selectedInvoiceOrder && (
+          <InvoiceModal
+            isOpen={!!selectedInvoiceOrder}
+            onClose={() => setSelectedInvoiceOrder(null)}
+            order={selectedInvoiceOrder}
+          />
+        )}
+
+        {/* Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EDEDF2] dark:border-[#27272A] pb-5">
           <div>
-            <div className="flex items-center gap-2">
-              <Package className="h-5 w-5 text-[#7C6FE0]" />
-              <h2 className="text-xl font-black">My Orders & Shipments</h2>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#7C6FE0] to-[#5546D6] text-white shadow-xs">
+                <Package className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+                  My Orders & Deliveries
+                </h2>
+                <p className="text-xs text-[#8A8A94] mt-0.5">
+                  Track live carrier milestones, download receipts, and manage recent purchases
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-[#8A8A94] mt-0.5">Track active deliveries, download invoice receipts, or request returns</p>
           </div>
-          <button
-            onClick={() => setActiveTab('all-products')}
-            className="rounded-xl bg-[#7C6FE0] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#6D60D6] transition"
-          >
-            Continue Shopping
-          </button>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => fetchUserOrders()}
+              disabled={ordersLoading}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs disabled:opacity-50"
+              title="Refresh Orders"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${ordersLoading ? 'animate-spin text-[#7C6FE0]' : ''}`} />
+              <span>{ordersLoading ? 'Syncing...' : 'Refresh'}</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('all-products')}
+              className="rounded-xl bg-[#7C6FE0] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#6D60D6] transition cursor-pointer"
+            >
+              Continue Shopping
+            </button>
+          </div>
         </div>
 
-        <div className="rounded-3xl border border-dashed border-[#CBD5E1] dark:border-[#27272A] bg-white/50 dark:bg-[#18181B]/50 p-12 text-center space-y-3">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#7C6FE0]/15 text-[#7C6FE0]">
-            <Package className="h-7 w-7" />
+        {/* Search & Status Filter Pills */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-white dark:bg-[#18181B] p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          {/* Search bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              value={orderSearchText}
+              onChange={(e) => setOrderSearchText(e.target.value)}
+              placeholder="Search by Order ID (e.g. NG-123456), item name, or reference..."
+              className="w-full rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 pl-9 pr-4 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:border-[#7C6FE0] focus:ring-1 focus:ring-[#7C6FE0] outline-hidden transition"
+            />
+            {orderSearchText && (
+              <button
+                onClick={() => setOrderSearchText('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+              >
+                Clear
+              </button>
+            )}
           </div>
-          <h3 className="font-extrabold text-base">No Orders Placed Yet</h3>
-          <p className="text-xs text-[#8A8A94] max-w-md mx-auto leading-relaxed">
-            When you complete purchases, your real-time shipping status, carrier tracking details, and invoice receipts will appear here automatically.
-          </p>
-          <button
-            onClick={() => setActiveTab('all-products')}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[#7C6FE0] px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[#6D60D6] transition"
-          >
-            <span>Start Shopping</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+
+          {/* Status Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+            {[
+              { id: 'all', label: 'All Orders', count: userOrders.length },
+              { id: 'processing', label: 'Processing', count: processingCount },
+              { id: 'shipped', label: 'In Transit', count: shippedCount },
+              { id: 'delivered', label: 'Delivered', count: deliveredCount },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setOrderFilterStatus(tab.id)}
+                className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  orderFilterStatus === tab.id
+                    ? 'bg-[#7C6FE0] text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    orderFilterStatus === tab.id
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Content Section */}
+        {ordersLoading && userOrders.length === 0 ? (
+          <div className="space-y-4">
+            {[1, 2].map((i) => (
+              <div key={i} className="animate-pulse rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#18181B] p-6 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded-md" />
+                  <div className="h-6 w-20 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                </div>
+                <div className="h-16 bg-slate-100 dark:bg-slate-900 rounded-2xl" />
+                <div className="flex justify-between items-center pt-2">
+                  <div className="h-4 w-24 bg-slate-200 dark:bg-slate-800 rounded-md" />
+                  <div className="h-8 w-28 bg-slate-200 dark:bg-slate-800 rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredOrders.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/60 dark:bg-[#18181B]/60 p-12 text-center space-y-4">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#7C6FE0]/15 text-[#7C6FE0]">
+              <Package className="h-8 w-8" />
+            </div>
+            {orderSearchText || orderFilterStatus !== 'all' ? (
+              <div className="space-y-2">
+                <h3 className="font-black text-lg text-slate-900 dark:text-white">No Matching Orders Found</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                  We couldn't find any orders matching "{orderSearchText}" in status "{orderFilterStatus}".
+                </p>
+                <button
+                  onClick={() => {
+                    setOrderSearchText('');
+                    setOrderFilterStatus('all');
+                  }}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-slate-800 dark:bg-slate-200 px-4 py-2 text-xs font-bold text-white dark:text-slate-900 hover:bg-slate-900 transition cursor-pointer"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset Filters</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <h3 className="font-black text-lg text-slate-900 dark:text-white">No Orders Placed Yet</h3>
+                <p className="text-xs text-[#8A8A94] max-w-md mx-auto leading-relaxed">
+                  When you complete purchases, your verified order records, live FedEx / GIG carrier tracking, and instant tax invoice receipts will appear here automatically.
+                </p>
+                <div className="pt-2">
+                  <button
+                    onClick={() => setActiveTab('all-products')}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#7C6FE0] px-6 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[#6D60D6] transition cursor-pointer"
+                  >
+                    <span>Start Shopping</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {filteredOrders.map((order) => {
+              const orderIdStr = order.orderId || order.id || 'ORDER';
+              const orderDate = new Date(order.createdAt);
+              const formattedDate = orderDate.toLocaleDateString('en-GB', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              });
+              const formattedTime = orderDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+              const isDelivered = order.status === 'delivered';
+              const isShipped = order.status === 'shipped';
+              const isProcessing = order.status === 'processing' || order.status === 'pending';
+
+              return (
+                <div
+                  key={order.id || order.orderId}
+                  className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#18181B] shadow-xs hover:shadow-md transition-all overflow-hidden"
+                >
+                  {/* Card Top Banner */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 dark:bg-slate-900/60 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-slate-900 dark:text-white font-mono">
+                          #{orderIdStr}
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(orderIdStr);
+                            onShowToast(`Order reference #${orderIdStr} copied to clipboard!`);
+                          }}
+                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                          title="Copy Order ID"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+
+                      <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                        <Calendar className="h-3.5 w-3.5" />
+                        <span>{formattedDate} at {formattedTime}</span>
+                      </div>
+
+                      <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                        <CreditCard className="h-3.5 w-3.5 text-[#7C6FE0]" />
+                        <span className="capitalize">{order.paymentMethod || 'Paystack Nigeria'}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 uppercase">
+                          {order.paymentStatus || 'Paid'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div>
+                      {isDelivered ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>Delivered</span>
+                        </span>
+                      ) : isShipped ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 dark:bg-sky-950/80 px-3 py-1 text-xs font-bold text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60">
+                          <Truck className="h-3.5 w-3.5 animate-pulse" />
+                          <span>In Transit (Shipped)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 dark:bg-amber-950/80 px-3 py-1 text-xs font-bold text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Processing (Warehouse)</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card Body */}
+                  <div className="p-5 sm:p-6 space-y-5">
+                    {/* Items List */}
+                    <div className="space-y-3">
+                      {(order.items || []).map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between gap-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800/60"
+                        >
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            <div className="h-14 w-14 shrink-0 rounded-xl bg-slate-200 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-700">
+                              <img
+                                src={item.image || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=300'}
+                                alt={item.name}
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                                {item.name}
+                              </h4>
+                              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                {item.color && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span className="h-2 w-2 rounded-full bg-[#7C6FE0]" />
+                                    <span>{item.color}</span>
+                                  </span>
+                                )}
+                                <span>Qty: {item.quantity || 1}</span>
+                                <span>•</span>
+                                <span>{formatNaira(item.price || 0)} each</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="font-black text-xs sm:text-sm text-slate-900 dark:text-white">
+                              {formatNaira((item.price || 0) * (item.quantity || 1))}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Delivery & Cost Summary Box */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      {/* Shipping Info */}
+                      <div className="space-y-1 text-xs">
+                        <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 text-[#7C6FE0]" />
+                          <span>Delivery Destination</span>
+                        </span>
+                        <p className="text-slate-600 dark:text-slate-400 pl-5">
+                          {order.customer?.address || 'Standard Address'}, {order.customer?.city || 'Lagos'}, {order.customer?.state || 'Nigeria'}
+                        </p>
+                        {order.customer?.phone && (
+                          <p className="text-slate-500 dark:text-slate-400 pl-5">
+                            Tel: {order.customer.phone}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Financial Totals */}
+                      <div className="space-y-1 text-xs sm:text-right">
+                        <div className="flex sm:justify-end gap-3 text-slate-500 dark:text-slate-400">
+                          <span>Subtotal:</span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">{formatNaira(order.subtotal || 0)}</span>
+                        </div>
+                        {order.discount ? (
+                          <div className="flex sm:justify-end gap-3 text-emerald-600 dark:text-emerald-400">
+                            <span>Discount:</span>
+                            <span className="font-semibold">-{formatNaira(order.discount)}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex sm:justify-end gap-3 text-slate-500 dark:text-slate-400">
+                          <span>Shipping:</span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            {order.shipping ? formatNaira(order.shipping) : 'Free Delivery'}
+                          </span>
+                        </div>
+                        <div className="flex sm:justify-end gap-3 pt-1 border-t border-slate-100 dark:border-slate-800 text-sm font-black text-slate-900 dark:text-white">
+                          <span>Total Order Amount:</span>
+                          <span className="text-[#7C6FE0]">{formatNaira(order.total || 0)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons Footer */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedTrackingOrderId(orderIdStr);
+                            setTrackingModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#7C6FE0] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#6D60D6] transition cursor-pointer"
+                        >
+                          <Truck className="h-3.5 w-3.5" />
+                          <span>Track Live Delivery</span>
+                        </button>
+
+                        <button
+                          onClick={() => setSelectedInvoiceOrder(order)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          <span>Tax Invoice / Receipt</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleReorder(order)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                        >
+                          <ShoppingBag className="h-3.5 w-3.5 text-[#7C6FE0]" />
+                          <span>Buy Again</span>
+                        </button>
+                        <button
+                          onClick={onOpenSupport}
+                          className="inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" />
+                          <span>Need Help?</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }

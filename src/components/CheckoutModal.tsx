@@ -81,6 +81,7 @@ interface CheckoutModalProps {
   onPlaceOrder?: (orderData: any) => Promise<any>;
   isDarkMode: boolean;
   onShowToast?: (msg: string) => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
@@ -92,6 +93,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onPlaceOrder,
   isDarkMode,
   onShowToast,
+  onNavigateTab,
 }) => {
   const modalScrollRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState<'form' | 'processing' | 'success'>('form');
@@ -1448,6 +1450,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
+              <button
+                onClick={() => {
+                  onClose();
+                  setStep('form');
+                  if (onNavigateTab) {
+                    onNavigateTab('orders');
+                  }
+                }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-[#7C6FE0] hover:bg-[#6D60D6] text-white px-5 py-3 text-xs font-bold shadow-md transition cursor-pointer"
+              >
+                <Truck className="h-4 w-4" />
+                <span>Track in My Orders</span>
+              </button>
               <a
                 href={`https://wa.me/2348078753111?text=${encodeURIComponent(
                   formData.deliveryType === 'pickup'
@@ -1459,11 +1474,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-white px-5 py-3 text-xs font-bold shadow-md transition cursor-pointer"
               >
                 <MessageSquare className="h-4 w-4" />
-                <span>Chat on WhatsApp regarding Order</span>
+                <span>WhatsApp</span>
               </a>
               <button
                 onClick={handleFinish}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-[#00C3F7] hover:bg-[#00B4E6] text-slate-950 px-6 py-3 text-xs font-bold shadow-md transition cursor-pointer"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-[#00C3F7] hover:bg-[#00B4E6] text-slate-950 px-5 py-3 text-xs font-bold shadow-md transition cursor-pointer"
               >
                 <ShoppingBag className="h-4 w-4" />
                 <span>Continue Shopping</span>

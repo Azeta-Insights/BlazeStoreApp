@@ -22,7 +22,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Product, AdminRole } from '../../types';
-import { api } from '../../services/api';
+import { api, saveLocalInventoryCache } from '../../services/api';
 import { saveFirestoreDoc, clearAllFirestoreProducts } from '../../services/firestoreService';
 import { ImageUploader } from '../ImageUploader';
 import { ConfirmDeleteModal } from '../ConfirmDeleteModal';
@@ -540,15 +540,24 @@ export const AdminInventory: React.FC<AdminInventoryProps> = ({
         if (newItems.length > 0) {
           const res = await api.bulkImportProducts(newItems);
           const imported = res.products && res.products.length > 0 ? res.products : (newItems as Product[]);
-          setProducts((prev) => [...imported, ...prev.filter((p) => !imported.some((ip) => ip.id === p.id))]);
+          let updatedCatalog: Product[] = [];
+          setProducts((prev) => {
+            const next = [...imported, ...prev.filter((p) => !imported.some((ip) => ip.id === p.id))];
+            updatedCatalog = next;
+            saveLocalInventoryCache(next);
+            return next;
+          });
           for (const p of imported) {
             if (p.id) {
               await saveFirestoreDoc('products', p.id, p).catch(() => {});
             }
           }
           try {
+            if (updatedCatalog.length > 0) {
+              saveLocalInventoryCache(updatedCatalog);
+            }
             localStorage.removeItem('blazestore_bootstrap_cache');
-            window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: imported } }));
+            window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: updatedCatalog.length > 0 ? updatedCatalog : imported } }));
           } catch {}
           onShowToast(`🚀 Successfully imported ${imported.length} products with immediate Storefront & Category sync!`);
         } else {

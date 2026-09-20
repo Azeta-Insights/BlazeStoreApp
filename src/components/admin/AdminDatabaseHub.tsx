@@ -108,6 +108,114 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // SMTP Configuration Form State
+  const [smtpHostInput, setSmtpHostInput] = useState('');
+  const [smtpPortInput, setSmtpPortInput] = useState('587');
+  const [smtpUserInput, setSmtpUserInput] = useState('');
+  const [smtpPassInput, setSmtpPassInput] = useState('');
+  const [smtpFromInput, setSmtpFromInput] = useState('');
+  const [smtpSecureInput, setSmtpSecureInput] = useState(false);
+  const [isUpdatingSmtp, setIsUpdatingSmtp] = useState(false);
+  const [showSmtpConfigForm, setShowSmtpConfigForm] = useState(false);
+
+  // Firestore Rules Helper State
+  const [showRulesSnippet, setShowRulesSnippet] = useState(false);
+  const [hasCopiedRules, setHasCopiedRules] = useState(false);
+
+  const FIRESTORE_RULES_SNIPPET = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Products: allow public read and authenticated admin manage
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // User cart documents
+    match /carts/{userId} {
+      allow read, write: if true;
+    }
+
+    // Wishlist documents
+    match /wishlists/{userId} {
+      allow read, write: if true;
+    }
+
+    // Orders & Transactions
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    // Store Notifications
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    // Fallback collection match
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
+  const copyFirestoreRules = () => {
+    navigator.clipboard.writeText(FIRESTORE_RULES_SNIPPET);
+    setHasCopiedRules(true);
+    onShowToast('📋 Firestore Security Rules copied to clipboard!');
+    setTimeout(() => setHasCopiedRules(false), 2500);
+  };
+
+  const handleSaveSmtpSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!smtpHostInput.trim() || !smtpUserInput.trim() || !smtpPassInput.trim()) {
+      onShowToast('⚠️ Please enter SMTP Host, User (Email), and Password / App Password.');
+      return;
+    }
+    setIsUpdatingSmtp(true);
+    try {
+      await api.updateEmailConfig({
+        host: smtpHostInput.trim(),
+        port: Number(smtpPortInput) || 587,
+        user: smtpUserInput.trim(),
+        pass: smtpPassInput.trim(),
+        from: smtpFromInput.trim() || `BlazeStore NG <${smtpUserInput.trim()}>`,
+        secure: smtpSecureInput,
+      });
+      onShowToast('✅ Outbound SMTP credentials updated successfully!');
+      setSmtpPassInput('');
+      setShowSmtpConfigForm(false);
+      await checkStatus(true);
+    } catch (err: any) {
+      onShowToast(`❌ Failed to update SMTP: ${err?.message || 'Error'}`);
+    } finally {
+      setIsUpdatingSmtp(false);
+    }
+  };
+
+  const applySmtpPreset = (preset: 'gmail' | 'brevo' | 'resend' | 'outlook') => {
+    if (preset === 'gmail') {
+      setSmtpHostInput('smtp.gmail.com');
+      setSmtpPortInput('587');
+      setSmtpSecureInput(false);
+      setSmtpFromInput('BlazeStore Orders <orders@blazestore.ng>');
+    } else if (preset === 'brevo') {
+      setSmtpHostInput('smtp-relay.brevo.com');
+      setSmtpPortInput('587');
+      setSmtpSecureInput(false);
+      setSmtpFromInput('BlazeStore <orders@blazestore.ng>');
+    } else if (preset === 'resend') {
+      setSmtpHostInput('smtp.resend.com');
+      setSmtpPortInput('465');
+      setSmtpSecureInput(true);
+      setSmtpUserInput('resend');
+      setSmtpFromInput('onboarding@resend.dev');
+    } else if (preset === 'outlook') {
+      setSmtpHostInput('smtp.office365.com');
+      setSmtpPortInput('587');
+      setSmtpSecureInput(false);
+    }
+  };
+
   const LIVE_WEBHOOK_URL = 'https://blaze-store-chi.vercel.app/api/paystack/webhook';
 
   const copyWebhookUrl = () => {
@@ -592,17 +700,47 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
 
         {/* Firestore confirmation banner */}
         <div className="mt-4 rounded-xl p-3.5 bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-800 dark:text-emerald-200">
-          <div className="flex items-start gap-2.5">
-            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-            <div>
-              <p className="font-bold">
-                Connected to primary cloud database.
-              </p>
-              <p className="mt-1 text-[11px] opacity-90 leading-relaxed">
-                Project: <code className="font-mono font-bold">blazestoreapp</code>. User accounts and real-time store storage are active.
-              </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+              <div>
+                <p className="font-bold">
+                  Connected to primary cloud database.
+                </p>
+                <p className="mt-1 text-[11px] opacity-90 leading-relaxed">
+                  Project: <code className="font-mono font-bold">blazestoreapp</code>. User accounts and real-time store storage are active.
+                </p>
+              </div>
             </div>
+
+            <button
+              onClick={() => setShowRulesSnippet(!showRulesSnippet)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shrink-0"
+            >
+              <Code className="h-3.5 w-3.5" />
+              <span>{showRulesSnippet ? 'Hide Security Rules' : 'View Security Rules'}</span>
+            </button>
           </div>
+
+          {showRulesSnippet && (
+            <div className="mt-3 pt-3 border-t border-emerald-500/20 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                  firestore.rules (Deploy to Firebase Console if needed):
+                </span>
+                <button
+                  onClick={copyFirestoreRules}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white dark:bg-black/50 border border-emerald-500/30 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-black/70 transition"
+                >
+                  {hasCopiedRules ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                  <span>{hasCopiedRules ? 'Copied!' : 'Copy Rules'}</span>
+                </button>
+              </div>
+              <pre className="p-3 rounded-lg bg-black/90 text-emerald-400 font-mono text-[10px] overflow-x-auto select-all max-h-48">
+                {FIRESTORE_RULES_SNIPPET}
+              </pre>
+            </div>
+          )}
         </div>
 
         {/* Collections Breakdown Grid */}
@@ -1306,28 +1444,172 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#8A8A94]">Current Configuration</h4>
-            <div className="rounded-xl p-4 bg-[#FAF9FC] dark:bg-[#202024] border border-[#EDEDF2] dark:border-[#27272A] text-xs space-y-2.5 font-mono">
-              <div className="flex justify-between">
-                <span className="text-[#8A8A94]">SMTP Status:</span>
-                <span className={emailStatus?.configured ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
-                  {emailStatus?.configured ? 'Active' : 'Unconfigured (In-App Store Feed Fallback)'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#8A8A94]">Authenticated User:</span>
-                <span className="text-slate-700 dark:text-slate-200">{emailStatus?.user || 'Not set'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#8A8A94]">Sender Identity:</span>
-                <span className="text-slate-700 dark:text-slate-200">{emailStatus?.from || 'BlazeStore NG <orders@blazestore.ng>'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#8A8A94]">Security Protocol:</span>
-                <span className="text-slate-700 dark:text-slate-200">{emailStatus?.secure ? 'Direct SSL (465)' : 'STARTTLS (587)'}</span>
-              </div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[#8A8A94]">Current Configuration</h4>
+              <button
+                type="button"
+                onClick={() => setShowSmtpConfigForm(!showSmtpConfigForm)}
+                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+              >
+                <Edit2 className="h-3 w-3" />
+                <span>{showSmtpConfigForm ? 'Hide Form' : 'Update Credentials'}</span>
+              </button>
             </div>
+
+            {/* SMTP Diagnostics Notice for Outlook/Office365 */}
+            <div className="rounded-xl p-3 bg-amber-500/10 border border-amber-500/25 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+              <div className="flex items-center gap-2 font-bold text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>Email Provider Notice (Error 535 5.7.139)</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-900/90 dark:text-amber-200/90">
+                If using Outlook/Hotmail, Microsoft disables basic SMTP passwords by default. For reliable email delivery, we recommend using <strong>Gmail SMTP</strong> with a 16-character Google App Password (Host: <code>smtp.gmail.com</code>, Port: <code>587</code>) or a transactional service like <strong>Brevo</strong> or <strong>Resend</strong>.
+              </p>
+            </div>
+
+            {showSmtpConfigForm ? (
+              <form onSubmit={handleSaveSmtpSettings} className="rounded-xl p-4 bg-[#FAF9FC] dark:bg-[#202024] border border-[#EDEDF2] dark:border-[#27272A] space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Configure Outbound SMTP</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-[#8A8A94] mr-1">Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() => applySmtpPreset('gmail')}
+                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20"
+                    >
+                      Gmail
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySmtpPreset('brevo')}
+                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
+                    >
+                      Brevo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySmtpPreset('resend')}
+                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20"
+                    >
+                      Resend
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Host</label>
+                    <input
+                      type="text"
+                      placeholder="smtp.gmail.com"
+                      value={smtpHostInput}
+                      onChange={(e) => setSmtpHostInput(e.target.value)}
+                      className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Port</label>
+                    <input
+                      type="number"
+                      placeholder="587"
+                      value={smtpPortInput}
+                      onChange={(e) => setSmtpPortInput(e.target.value)}
+                      className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">User / Email</label>
+                  <input
+                    type="text"
+                    placeholder="your-email@gmail.com"
+                    value={smtpUserInput}
+                    onChange={(e) => setSmtpUserInput(e.target.value)}
+                    className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Password / App Password</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••••••••••"
+                    value={smtpPassInput}
+                    onChange={(e) => setSmtpPassInput(e.target.value)}
+                    className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
+                  />
+                  <p className="text-[10px] text-[#8A8A94] mt-0.5">For Gmail, generate a 16-character App Password under Google Account &gt; Security &gt; 2-Step Verification.</p>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Sender Name / Email (From)</label>
+                  <input
+                    type="text"
+                    placeholder="BlazeStore Nigeria <orders@blazestore.ng>"
+                    value={smtpFromInput}
+                    onChange={(e) => setSmtpFromInput(e.target.value)}
+                    className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={smtpSecureInput}
+                      onChange={(e) => setSmtpSecureInput(e.target.checked)}
+                      className="rounded text-indigo-600"
+                    />
+                    <span>Direct SSL (Port 465)</span>
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowSmtpConfigForm(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#8A8A94] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdatingSmtp}
+                      className="px-4 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs disabled:opacity-50"
+                    >
+                      {isUpdatingSmtp ? 'Saving...' : 'Save Settings'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            ) : (
+              <div className="rounded-xl p-4 bg-[#FAF9FC] dark:bg-[#202024] border border-[#EDEDF2] dark:border-[#27272A] text-xs space-y-2.5 font-mono">
+                <div className="flex justify-between">
+                  <span className="text-[#8A8A94]">SMTP Status:</span>
+                  <span className={emailStatus?.configured ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
+                    {emailStatus?.configured ? 'Active' : 'Unconfigured (In-App Store Feed Fallback)'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#8A8A94]">Host &amp; Port:</span>
+                  <span className="text-slate-700 dark:text-slate-200">{emailStatus?.host || 'smtp.gmail.com'}:{emailStatus?.port || 587}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#8A8A94]">Authenticated User:</span>
+                  <span className="text-slate-700 dark:text-slate-200">{emailStatus?.user || 'Not set'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#8A8A94]">Sender Identity:</span>
+                  <span className="text-slate-700 dark:text-slate-200">{emailStatus?.from || 'BlazeStore NG <orders@blazestore.ng>'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#8A8A94]">Security Protocol:</span>
+                  <span className="text-slate-700 dark:text-slate-200">{emailStatus?.secure ? 'Direct SSL (465)' : 'STARTTLS (587)'}</span>
+                </div>
+              </div>
+            )}
 
             <div className="bg-black/90 text-white rounded-lg p-3 text-[11px] font-mono space-y-1">
               <div className="text-[#0AA5FF]"># Required Environment Variables (.env)</div>
@@ -1381,8 +1663,8 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
                       : 'bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400'
                   }`}
                 >
-                  <p className="font-bold">{testEmailResult.success ? 'Success' : 'Dispatch Failed'}</p>
-                  <p className="text-[11px] mt-0.5 break-all">{testEmailResult.message}</p>
+                  <p className="font-bold">{testEmailResult.success ? 'Success' : 'Dispatch Notice'}</p>
+                  <p className="text-[11px] mt-1 break-words leading-relaxed">{testEmailResult.message}</p>
                 </div>
               )}
             </form>

@@ -106,6 +106,7 @@ export interface OrderCustomer {
   city?: string;
   state?: string;
   zip?: string;
+  country?: string;
   paymentMethod?: string;
 }
 
@@ -117,6 +118,8 @@ export interface OrderItem {
   quantity: number;
   image: string;
   variant?: string;
+  color?: string;
+  size?: string;
 }
 
 export interface Order {
@@ -128,7 +131,12 @@ export interface Order {
   subtotal: number;
   discount: number;
   shipping: number;
+  tax?: number;
   total: number;
+  deliveryType?: 'delivery' | 'pickup';
+  pickupStation?: string;
+  trackingNumber?: string;
+  carrier?: string;
   currency?: string;
   currencySymbol?: string;
   paymentMethod?: string;

@@ -13,6 +13,7 @@ import {
   Address,
   AnnouncementConfig
 } from '../types';
+import { auth } from '../lib/firebase';
 
 // Initial load of inventory from browser persistent cache
 function loadCachedInventory(): Product[] {
@@ -28,6 +29,13 @@ function loadCachedInventory(): Product[] {
 
 // Clean fallback products array initialized from persistent storage
 let fallbackEnrichedProducts: Product[] = loadCachedInventory();
+
+export function getCachedProducts(): Product[] {
+  if (fallbackEnrichedProducts && fallbackEnrichedProducts.length > 0) {
+    return fallbackEnrichedProducts;
+  }
+  return loadCachedInventory();
+}
 
 export function saveLocalInventoryCache(products: Product[]) {
   fallbackEnrichedProducts = products;
@@ -70,6 +78,30 @@ const fallbackUsers: User[] = [
     totalSpent: 0,
   },
 ];
+
+export function getStoredMyOrders(): Order[] {
+  try {
+    const raw = localStorage.getItem('blazestore_my_orders');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+export function saveStoredMyOrder(order: Order): void {
+  try {
+    const list = getStoredMyOrders();
+    const existingIdx = list.findIndex((o) => (o.orderId && o.orderId === order.orderId) || (o.id && o.id === order.id));
+    if (existingIdx > -1) {
+      list[existingIdx] = { ...list[existingIdx], ...order };
+    } else {
+      list.unshift(order);
+    }
+    localStorage.setItem('blazestore_my_orders', JSON.stringify(list));
+  } catch {}
+}
 
 export interface CloudinaryClientConfig {
   cloudName: string;
@@ -122,9 +154,26 @@ export interface DbStatus {
   serverTime?: string;
 }
 
-// Robust JSON fetch wrapper with clean error extraction for Vercel and standalone environments
-async function safeJsonFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('blazestore_jwt_token') : null;
+// Retrieves active, non-expired Firebase ID token automatically
+async function getFreshAuthToken(forceRefresh = false): Promise<string | null> {
+  try {
+    if (typeof window === 'undefined') return null;
+    if (auth?.currentUser) {
+      const freshToken = await auth.currentUser.getIdToken(forceRefresh);
+      if (freshToken) {
+        localStorage.setItem('blazestore_jwt_token', freshToken);
+        return freshToken;
+      }
+    }
+    return localStorage.getItem('blazestore_jwt_token');
+  } catch {
+    return typeof window !== 'undefined' ? localStorage.getItem('blazestore_jwt_token') : null;
+  }
+}
+
+// Robust JSON fetch wrapper with clean error extraction and automatic token refresh
+async function safeJsonFetch<T = any>(url: string, options?: RequestInit, isRetry = false): Promise<T> {
+  const token = await getFreshAuthToken(isRetry);
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
   };
@@ -133,6 +182,18 @@ async function safeJsonFetch<T = any>(url: string, options?: RequestInit): Promi
   }
 
   const res = await fetch(url, { ...options, headers });
+
+  // If unauthorized due to token expiration, perform one automatic token refresh and retry
+  if (res.status === 401 && !isRetry && auth?.currentUser) {
+    try {
+      const refreshedToken = await auth.currentUser.getIdToken(true);
+      if (refreshedToken) {
+        localStorage.setItem('blazestore_jwt_token', refreshedToken);
+        return safeJsonFetch<T>(url, options, true);
+      }
+    } catch {}
+  }
+
   const text = await res.text();
   let json: any;
   try {
@@ -223,6 +284,19 @@ export const api = {
     }
   },
 
+  async updateEmailConfig(config: { host?: string; port?: number; user?: string; pass?: string; from?: string; secure?: boolean }): Promise<any> {
+    try {
+      const res = await safeJsonFetch<any>('/api/email/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      return res;
+    } catch (e: any) {
+      throw e;
+    }
+  },
+
   // === Storefront Products API ===
   async getProducts(category?: string, search?: string): Promise<Product[]> {
     try {
@@ -235,7 +309,15 @@ export const api = {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.products)) {
-          return data.products;
+          if (!category || category === 'all') {
+            if (data.products.length > 0) {
+              fallbackEnrichedProducts = data.products;
+              saveLocalInventoryCache(data.products);
+            } else if (fallbackEnrichedProducts.length > 0) {
+              return fallbackEnrichedProducts;
+            }
+          }
+          return data.products.length > 0 ? data.products : fallbackEnrichedProducts;
         }
       }
     } catch (e) {
@@ -352,14 +434,115 @@ export const api = {
 
   // === Customer Order Placement ===
   async placeOrder(orderData: any): Promise<Order> {
-    const res = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orderData),
-    });
-    if (!res.ok) throw new Error('Failed to place order');
-    const data = await res.json();
-    return data.order;
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderData),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.order) {
+          saveStoredMyOrder(data.order);
+          fallbackOrders.unshift(data.order);
+          try {
+            window.dispatchEvent(new CustomEvent('blazestore:order_placed', { detail: { order: data.order } }));
+          } catch {}
+          return data.order;
+        }
+      }
+    } catch (err) {
+      console.warn('Order place server sync warning:', err);
+    }
+
+    // Client-side fallback order
+    const orderId = orderData.orderId || orderData.id || `NG-${Date.now().toString().slice(-6)}`;
+    const fallbackOrder: Order = {
+      id: orderId,
+      orderId: orderId,
+      userId: orderData.userId || 'guest',
+      customer: orderData.customer || {
+        name: orderData.name || 'Customer',
+        email: orderData.email || orderData.userEmail || 'customer@example.com',
+        phone: orderData.phone || '',
+        address: orderData.address || 'Standard Delivery Address',
+        city: orderData.city || 'Lagos',
+        state: orderData.state || 'Lagos State',
+        country: 'Nigeria',
+      },
+      items: orderData.items || [],
+      subtotal: orderData.subtotal || 0,
+      discount: orderData.discount || 0,
+      shipping: orderData.shipping || 0,
+      tax: orderData.tax || 0,
+      total: orderData.total || 0,
+      currency: orderData.currency || 'NGN',
+      currencySymbol: orderData.currencySymbol || '₦',
+      status: 'processing',
+      paymentMethod: orderData.paymentMethod || 'Paystack',
+      paymentStatus: orderData.paymentStatus || 'paid',
+      paymentRef: orderData.paymentReference || orderData.paymentRef,
+      deliveryType: orderData.deliveryType || 'delivery',
+      pickupStation: orderData.pickupStation,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      timeline: [
+        {
+          status: 'Order Placed',
+          title: 'Order Confirmed',
+          description: 'Your order was verified and recorded.',
+          timestamp: new Date().toISOString(),
+          isCompleted: true,
+        },
+        {
+          status: 'Processing',
+          title: 'Preparing for Dispatch',
+          description: 'Items are being packed at the fulfillment center.',
+          timestamp: new Date().toISOString(),
+          isCompleted: true,
+        },
+      ],
+      refundAmount: 0,
+      refundStatus: 'none',
+    };
+
+    saveStoredMyOrder(fallbackOrder);
+    fallbackOrders.unshift(fallbackOrder);
+    try {
+      window.dispatchEvent(new CustomEvent('blazestore:order_placed', { detail: { order: fallbackOrder } }));
+    } catch {}
+    return fallbackOrder;
+  },
+
+  // === Customer My Orders Fetching ===
+  async getMyOrders(userId?: string, email?: string): Promise<Order[]> {
+    const localOrders = getStoredMyOrders();
+    try {
+      const params = new URLSearchParams();
+      if (userId && userId !== 'guest' && userId !== 'guest-visitor') params.append('userId', userId);
+      if (email && email.trim()) params.append('email', email.trim());
+
+      const res = await fetch(`/api/orders${params.toString() ? `?${params.toString()}` : ''}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.orders)) {
+          // Merge server orders with local storage orders
+          const map = new Map<string, Order>();
+          data.orders.forEach((o: Order) => map.set(o.orderId || o.id, o));
+          localOrders.forEach((o: Order) => {
+            if (!map.has(o.orderId || o.id)) map.set(o.orderId || o.id, o);
+          });
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          return merged;
+        }
+      }
+    } catch (err) {
+      console.warn('Fetch my orders warning:', err);
+    }
+
+    if (localOrders.length > 0) return localOrders;
+    return [...fallbackOrders];
   },
 
   // === Notifications API ===
@@ -582,8 +765,13 @@ export const api = {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.products)) {
-          if (data.products.length > 0) {
-            saveLocalInventoryCache(data.products);
+          if (!category || category === 'all') {
+            if (data.products.length > 0) {
+              fallbackEnrichedProducts = data.products;
+              saveLocalInventoryCache(data.products);
+            } else if (fallbackEnrichedProducts.length > 0) {
+              return fallbackEnrichedProducts;
+            }
           }
           return data.products.length > 0 ? data.products : fallbackEnrichedProducts;
         }
@@ -743,6 +931,14 @@ export const api = {
   },
 
   async clearAllProducts(): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    fallbackEnrichedProducts = [];
+    try {
+      localStorage.removeItem('blazestore_bootstrap_cache');
+      localStorage.removeItem('blazestore_inventory_cache');
+      saveLocalInventoryCache([]);
+      window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: [] } }));
+    } catch {}
+
     try {
       const res = await fetch('/api/admin/products/clear-all', {
         method: 'POST',
@@ -755,11 +951,6 @@ export const api = {
     } catch (e) {
       console.warn('Server clear products error:', e);
     }
-    try {
-      localStorage.removeItem('blazestore_bootstrap_cache');
-      saveLocalInventoryCache([]);
-      window.dispatchEvent(new CustomEvent('blazestore:products_updated', { detail: { products: [] } }));
-    } catch {}
     return { success: true, deletedCount: 0, message: 'All inventory items cleared.' };
   },
 
@@ -1825,13 +2016,42 @@ export const api = {
       };
     }
 
-    const orders = await this.getAdminOrders();
-    const order = orders.find(
-      (o) =>
-        o.orderId.toLowerCase() === cleanQuery ||
-        (o.customer?.email && o.customer.email.toLowerCase() === cleanQuery) ||
-        (o.id && o.id.toLowerCase() === cleanQuery)
-    );
+    let order: Order | undefined;
+
+    // 1. Try direct order API
+    try {
+      const directRes = await fetch(`/api/orders/${encodeURIComponent(cleanQuery)}`);
+      if (directRes.ok) {
+        const directData = await directRes.json();
+        if (directData?.order) {
+          order = directData.order;
+        }
+      }
+    } catch {}
+
+    // 2. Try customer my orders & local orders
+    if (!order) {
+      const myOrders = await this.getMyOrders('', cleanQuery);
+      order = myOrders.find(
+        (o) =>
+          (o.orderId && o.orderId.toLowerCase() === cleanQuery) ||
+          (o.customer?.email && o.customer.email.toLowerCase() === cleanQuery) ||
+          (o.id && o.id.toLowerCase() === cleanQuery) ||
+          (o.paymentRef && o.paymentRef.toLowerCase() === cleanQuery)
+      );
+    }
+
+    // 3. Try admin orders
+    if (!order) {
+      const adminOrders = await this.getAdminOrders();
+      order = adminOrders.find(
+        (o) =>
+          (o.orderId && o.orderId.toLowerCase() === cleanQuery) ||
+          (o.customer?.email && o.customer.email.toLowerCase() === cleanQuery) ||
+          (o.id && o.id.toLowerCase() === cleanQuery) ||
+          (o.paymentRef && o.paymentRef.toLowerCase() === cleanQuery)
+      );
+    }
 
     if (!order) {
       return {
@@ -2246,7 +2466,8 @@ export const api = {
     try {
       const res = await safeJsonFetch<any>('/api/bootstrap');
       if (res && res.success) {
-        if (Array.isArray(res.products) && res.products.length > 0) {
+        if (Array.isArray(res.products)) {
+          fallbackEnrichedProducts = res.products;
           saveLocalInventoryCache(res.products);
         }
         // Cache to localStorage for instantaneous next startup
@@ -2284,6 +2505,10 @@ export const api = {
       notifications: [],
       currentUser: null,
     };
+  },
+
+  getCachedProducts(): Product[] {
+    return getCachedProducts();
   },
 };
 

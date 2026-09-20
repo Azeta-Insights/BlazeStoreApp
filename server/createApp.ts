@@ -19,6 +19,8 @@ import {
   getWishlist,
   toggleWishlist,
   createOrder,
+  getUserOrders,
+  getOrderById,
   updateOrderPaymentByReference,
   getAllOrders,
   updateOrderStatus,
@@ -55,6 +57,7 @@ import {
 import {
   getEmailStatus,
   sendTestEmail,
+  setRuntimeEmailConfig,
 } from './email';
 import {
   isPaystackConfigured,
@@ -242,6 +245,17 @@ export function createApp() {
     }
   });
 
+  apiRouter.post('/email/config', async (req, res) => {
+    try {
+      const { host, port, user, pass, from, secure } = req.body || {};
+      setRuntimeEmailConfig({ host, port, user, pass, from, secure });
+      const status = getEmailStatus();
+      res.json({ success: true, ...status });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to update email config' });
+    }
+  });
+
   // === Store Database API Routes ===
 
   // 1. Health & Database Status
@@ -256,6 +270,49 @@ export function createApp() {
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'DB check failed' });
+    }
+  });
+
+  // 1b. Consolidated Bootstrap API (Storefront fast-load)
+  apiRouter.get('/bootstrap', async (req, res) => {
+    try {
+      const [dbStatus, allProducts, cart, wishlist, notifications] = await Promise.all([
+        getDatabaseStatus().catch(() => ({ connected: true, database: 'Cloud Firestore' })),
+        getProducts().catch(() => []),
+        getCart().catch(() => []),
+        getWishlist().catch(() => []),
+        getNotifications().catch(() => []),
+      ]);
+
+      const deals = allProducts.filter(
+        (p: any) => p.isDeal || p.isHot || (p.discountPercentage && p.discountPercentage >= 15)
+      );
+      const recommended = allProducts.filter((p: any) => !deals.some((d: any) => d.id === p.id));
+
+      res.json({
+        success: true,
+        dbStatus,
+        products: allProducts,
+        deals: deals.length > 0 ? deals : allProducts.slice(0, Math.ceil(allProducts.length / 2)),
+        recommended: recommended.length > 0 ? recommended : allProducts.slice(Math.ceil(allProducts.length / 2)),
+        cart,
+        wishlist,
+        notifications,
+        announcement: {
+          enabled: true,
+          badge: 'FLASH SALE',
+          title: 'Mega Tech & Sillage Deals!',
+          description: 'Save up to 40% on luxury fragrances, flagship devices & fashion.',
+          linkText: 'Claim 20% Voucher',
+          linkAction: 'coupon:FLASH20',
+          backgroundColor: 'from-amber-600 via-orange-600 to-rose-600',
+          textColor: 'text-white',
+        },
+        paymentConfig: getPaystackFullConfig(),
+        serverTime: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Bootstrap failed' });
     }
   });
 
@@ -347,7 +404,48 @@ export function createApp() {
     }
   });
 
-  // 5. Orders API (Storefront customer placement)
+  // 5. Orders API (Storefront customer placement & customer order tracking)
+  apiRouter.get('/orders', async (req, res) => {
+    try {
+      const { userId, email, orderId, search } = req.query as {
+        userId?: string;
+        email?: string;
+        orderId?: string;
+        search?: string;
+      };
+
+      // Try to extract user info from auth token if present
+      let authUserId = userId;
+      let authEmail = email;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const decoded = await verifyFirebaseIdToken(authHeader.split(' ')[1]);
+        if (decoded?.uid) {
+          authUserId = authUserId || decoded.uid;
+          authEmail = authEmail || decoded.email;
+        }
+      }
+
+      const orders = await getUserOrders(authUserId, authEmail, orderId || search);
+      res.json({ success: true, orders });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  apiRouter.get('/orders/:orderId', async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const order = await getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ success: false, error: `Order #${orderId} not found.` });
+      }
+      res.json({ success: true, order });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
   apiRouter.post('/orders', async (req, res) => {
     try {
       const orderData = req.body;

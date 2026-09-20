@@ -187,30 +187,50 @@ export function subscribeProductsFromFirestore(
   const path = 'products';
   const productsRef = collection(firestore, 'products');
 
-  return onSnapshot(
-    productsRef,
-    (snapshot) => {
-      const items: Product[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as Product;
-        items.push({
-          ...data,
-          id: docSnap.id,
+  try {
+    return onSnapshot(
+      productsRef,
+      (snapshot) => {
+        const items: Product[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as Product;
+          items.push({
+            ...data,
+            id: docSnap.id,
+          });
         });
-      });
 
-      // Return empty array when no products exist
-      onUpdate(items);
-    },
-    (error) => {
-      try {
-        handleFirestoreError(error, OperationType.LIST, path);
-      } catch (e: any) {
-        if (onError) onError(e);
-        onUpdate([]);
+        // Return empty array when no products exist
+        onUpdate(items);
+      },
+      (error) => {
+        // If Firestore security rules or client listener encounters an issue, fallback immediately to backend API
+        fetch('/api/products')
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data && Array.isArray(data.products) && data.products.length > 0) {
+              onUpdate(data.products);
+            }
+          })
+          .catch(() => {});
+
+        console.warn(`[Firestore] Products listener active with REST API fallback (${error.message || 'permission restricted'})`);
+        if (onError) {
+          onError(error);
+        }
       }
-    }
-  );
+    );
+  } catch (err: any) {
+    fetch('/api/products')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.products) && data.products.length > 0) {
+          onUpdate(data.products);
+        }
+      })
+      .catch(() => {});
+    return () => {};
+  }
 }
 
 /**
@@ -1061,3 +1081,4 @@ export async function deleteFirestoreDoc(
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
+

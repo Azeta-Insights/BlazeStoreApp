@@ -8,15 +8,49 @@ interface EmailSendResult {
   simulated?: boolean;
 }
 
+let runtimeSmtpHost: string = 'smtp.gmail.com';
+let runtimeSmtpPort: number = 587;
+let runtimeSmtpUser: string = 'blessing.waydiva@gmail.com';
+let runtimeSmtpPass: string = 'pmfmflsgfdyxfwet';
+let runtimeSmtpFrom: string = 'BlazeStore NG <blessing.waydiva@gmail.com>';
+let runtimeSmtpSecure: boolean = false;
+
+export function setRuntimeEmailConfig(config: {
+  host?: string;
+  port?: number;
+  user?: string;
+  pass?: string;
+  from?: string;
+  secure?: boolean;
+}) {
+  if (config.host !== undefined) runtimeSmtpHost = config.host.trim();
+  if (config.port !== undefined) runtimeSmtpPort = Number(config.port) || 587;
+  if (config.user !== undefined) runtimeSmtpUser = config.user.trim();
+  if (config.pass !== undefined) runtimeSmtpPass = config.pass.trim();
+  if (config.from !== undefined) runtimeSmtpFrom = config.from.trim();
+  if (config.secure !== undefined) runtimeSmtpSecure = Boolean(config.secure);
+}
+
 /**
- * Get nodemailer transport configured via environment variables
+ * Get nodemailer transport configured via environment variables or runtime settings
  */
 function getEmailTransporter() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT) || 587;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
-  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+  let host = (runtimeSmtpHost || process.env.SMTP_HOST || '').trim();
+  const port = runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587;
+  const user = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
+  let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '').trim();
+
+  // If user is a Gmail address and host is empty, default host to smtp.gmail.com
+  if (!host && user.toLowerCase().endsWith('@gmail.com')) {
+    host = 'smtp.gmail.com';
+  }
+
+  // If using Gmail or Google SMTP, strip spaces and dashes from 16-char App Password (e.g. "abcd efgh ijkl mnop")
+  if ((host.includes('gmail.com') || host.includes('googlemail.com') || user.toLowerCase().endsWith('@gmail.com')) && pass) {
+    pass = pass.replace(/[\s-]+/g, '');
+  }
+
+  const secure = runtimeSmtpSecure || process.env.SMTP_SECURE === 'true' || port === 465;
 
   if (!host || !user || !pass) {
     return null;
@@ -31,6 +65,19 @@ function getEmailTransporter() {
       pass,
     },
   });
+}
+
+function getSenderFromAddress(user: string): string {
+  if (process.env.SMTP_FROM && process.env.SMTP_FROM.trim()) {
+    return process.env.SMTP_FROM.trim();
+  }
+  if (runtimeSmtpFrom && runtimeSmtpFrom.trim()) {
+    return runtimeSmtpFrom.trim();
+  }
+  if (user && user.toLowerCase().endsWith('@gmail.com')) {
+    return `"BlazeStore NG" <${user}>`;
+  }
+  return `"BlazeStore NG" <orders@blazestore.ng>`;
 }
 
 /**
@@ -55,7 +102,8 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
   }
 
   const transporter = getEmailTransporter();
-  const fromAddress = process.env.SMTP_FROM || `"BlazeStore NG" <orders@blazestore.ng>`;
+  const smtpUser = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
+  const fromAddress = getSenderFromAddress(smtpUser);
   const itemsHtml = (order.items || [])
     .map(
       (item) => `
@@ -136,7 +184,7 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
                   <td style="padding: 8px 12px; text-align: right; font-weight: 600;">${order.shipping === 0 ? 'FREE' : formatNaira(order.shipping || 0)}</td>
                 </tr>
                 <tr style="border-top: 2px solid #18181B; font-size: 16px;">
-                  <td colspan="2" style="padding: 12px; text-align: right; font-weight: 900;">Total Paid:</td>
+                  <td colspan="2" style="padding: 12px; text-align: right; font-weight: 900;">Total Order Amount:</td>
                   <td style="padding: 12px; text-align: right; font-weight: 900; color: #7C6FE0;">${formatNaira(order.total || 0)}</td>
                 </tr>
               </tfoot>
@@ -192,10 +240,11 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
       simulated: false,
     };
   } catch (err: any) {
-    console.error(`[Email Service Error] Failed to send email to ${recipientEmail}:`, err?.message || err);
+    const friendlyError = formatSmtpError(err);
+    console.warn(`[Email Dispatch Notice] Could not deliver email to ${recipientEmail}:`, friendlyError);
     return {
       success: false,
-      error: err?.message || 'SMTP delivery failed.',
+      error: friendlyError,
     };
   }
 }
@@ -203,19 +252,33 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
 /**
  * Returns current configuration status of outbound email service
  */
+function formatSmtpError(err: any): string {
+  const msg = err?.message || String(err);
+  if (msg.includes('535 5.7.139') || msg.includes('SmtpClientAuthentication is disabled')) {
+    return 'Microsoft 365 / Outlook error (535 5.7.139): Authenticated SMTP is disabled for this mailbox by Microsoft policy. Please enable SMTP AUTH in Microsoft 365 Admin Center, or use Gmail SMTP with a 16-character App Password (smtp.gmail.com:587).';
+  }
+  if (msg.includes('535-5.7.8') || msg.includes('Username and Password not accepted') || msg.includes('BadCredentials') || msg.includes('535 5.7.8')) {
+    return 'Authentication failed: Invalid email or password. If using Gmail, please create and use a 16-character Google App Password (not your personal account password).';
+  }
+  if (msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
+    return `Connection to SMTP host failed (${err.code || 'Network Error'}). Please check your SMTP Host address and Port number.`;
+  }
+  return msg;
+}
+
 export function getEmailStatus() {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const hasPass = Boolean(process.env.SMTP_PASS || process.env.SMTP_PASSWORD);
+  const host = runtimeSmtpHost || process.env.SMTP_HOST;
+  const user = runtimeSmtpUser || process.env.SMTP_USER;
+  const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD);
   const isConfigured = Boolean(host && user && hasPass);
 
   return {
     configured: isConfigured,
     host: host || 'Not set',
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === 'true',
+    port: runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587,
+    secure: runtimeSmtpSecure || process.env.SMTP_SECURE === 'true',
     user: user ? `${user.substring(0, 4)}***@${user.split('@')[1] || ''}` : 'Not set',
-    from: process.env.SMTP_FROM || 'BlazeStore NG <orders@blazestore.ng>',
+    from: runtimeSmtpFrom || process.env.SMTP_FROM || 'BlazeStore NG <orders@blazestore.ng>',
   };
 }
 
@@ -231,7 +294,7 @@ export async function sendTestEmail(targetEmail: string): Promise<EmailSendResul
     };
   }
 
-  const fromAddress = process.env.SMTP_FROM || `"BlazeStore NG" <orders@blazestore.ng>`;
+  const fromAddress = getSenderFromAddress((runtimeSmtpUser || process.env.SMTP_USER || '').trim());
   try {
     const info = await transporter.sendMail({
       from: fromAddress,
@@ -254,9 +317,10 @@ export async function sendTestEmail(targetEmail: string): Promise<EmailSendResul
       simulated: false,
     };
   } catch (err: any) {
+    const friendly = formatSmtpError(err);
     return {
       success: false,
-      error: err?.message || 'SMTP test dispatch failed.',
+      error: friendly,
     };
   }
 }

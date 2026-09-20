@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { adminDb, adminAuth } from './firebase';
 import { Product, CartItem, NotificationItem, User, Order, RefundRecord, AdminRole, SalesAnalytics } from '../src/types';
 import { verifyFirebaseIdToken } from './auth';
@@ -32,49 +34,154 @@ export function getRoleForEmail(email: string): { role: string; roleType: AdminR
   return { role: 'Customer', roleType: 'customer' };
 }
 
-// Resilient collection getter (tries Admin SDK, falls back to Firestore REST)
-async function fetchCollection<T = any>(collectionName: string): Promise<T[]> {
+// Persistent Disk Database Path
+const DB_DIR = path.join(process.cwd(), 'data');
+const DB_FILE = path.join(DB_DIR, 'blazestore_db.json');
+
+// In-memory collection cache keyed by collectionName -> Map<docId, document>
+const serverStore = new Map<string, Map<string, any>>();
+
+// Initialize and load persistent data from disk on server startup
+function loadDatabaseFromDisk(): void {
   try {
-    const snap = await adminDb.collection(collectionName).get();
-    const items: T[] = [];
-    snap.forEach((d) => items.push({ ...(d.data() as T), id: d.id, _id: d.id }));
-    return items;
-  } catch (err: any) {
-    // If admin permissions fail (e.g. custom Firebase project without service account key in dev container)
-    // seamlessly use Firestore REST API with the project's API key
-    return (await restGetCollection(collectionName)) as T[];
+    if (!fs.existsSync(DB_DIR)) {
+      fs.mkdirSync(DB_DIR, { recursive: true });
+    }
+    if (fs.existsSync(DB_FILE)) {
+      const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      if (raw.trim()) {
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+          for (const [colName, docs] of Object.entries(data)) {
+            if (Array.isArray(docs)) {
+              const map = getStoreMap(colName);
+              docs.forEach((d: any) => {
+                if (d && d.id) {
+                  map.set(String(d.id), d);
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to read blazestore_db.json from disk:', err);
   }
+}
+
+// Persist serverStore to disk
+let saveTimeout: NodeJS.Timeout | null = null;
+function persistDatabaseToDisk(immediate = false): void {
+  const executeSave = () => {
+    try {
+      if (!fs.existsSync(DB_DIR)) {
+        fs.mkdirSync(DB_DIR, { recursive: true });
+      }
+      const serializable: Record<string, any[]> = {};
+      for (const [colName, map] of serverStore.entries()) {
+        serializable[colName] = Array.from(map.values());
+      }
+      fs.writeFileSync(DB_FILE, JSON.stringify(serializable, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[Storage] Failed to save blazestore_db.json to disk:', err);
+    }
+  };
+
+  if (immediate) {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    executeSave();
+  } else {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(executeSave, 300);
+  }
+}
+
+function getStoreMap(collectionName: string): Map<string, any> {
+  let map = serverStore.get(collectionName);
+  if (!map) {
+    map = new Map<string, any>();
+    serverStore.set(collectionName, map);
+  }
+  return map;
+}
+
+// Load disk storage immediately
+loadDatabaseFromDisk();
+
+// Set of collections currently synced from Firestore REST
+const syncedCollections = new Set<string>();
+
+async function syncCollectionFromRemote(collectionName: string): Promise<void> {
+  try {
+    const remoteDocs = await restGetCollection(collectionName);
+    const map = getStoreMap(collectionName);
+    if (Array.isArray(remoteDocs) && remoteDocs.length > 0) {
+      remoteDocs.forEach((d) => {
+        if (d && d.id) {
+          map.set(String(d.id), d);
+        }
+      });
+      persistDatabaseToDisk(false);
+    }
+  } catch (err) {
+    console.warn(`[Firestore Sync] Failed to load ${collectionName}:`, err);
+  }
+}
+
+// Resilient collection getter (instant in-memory + background REST)
+async function fetchCollection<T = any>(collectionName: string): Promise<T[]> {
+  const map = getStoreMap(collectionName);
+
+  if (!syncedCollections.has(collectionName)) {
+    syncedCollections.add(collectionName);
+    await syncCollectionFromRemote(collectionName);
+  }
+
+  return Array.from(map.values()) as T[];
 }
 
 // Resilient document getter
 async function fetchDocument<T = any>(collectionName: string, docId: string): Promise<T | null> {
-  try {
-    const snap = await adminDb.collection(collectionName).doc(docId).get();
-    if (snap.exists) {
-      return { ...(snap.data() as T), id: snap.id, _id: snap.id };
-    }
-    return null;
-  } catch {
-    return (await restGetDoc(collectionName, docId)) as T | null;
+  const map = getStoreMap(collectionName);
+  if (map.has(docId)) {
+    return map.get(docId) as T;
   }
+  try {
+    const remote = await restGetDoc(collectionName, docId);
+    if (remote) {
+      map.set(docId, remote);
+      persistDatabaseToDisk(false);
+      return remote as T;
+    }
+  } catch {}
+  return null;
 }
 
 // Resilient document setter
 async function saveDocument(collectionName: string, docId: string, data: any, merge = true): Promise<void> {
-  try {
-    await adminDb.collection(collectionName).doc(docId).set(data, { merge });
-  } catch {
-    await restSetDoc(collectionName, docId, data);
-  }
+  const map = getStoreMap(collectionName);
+  const existing = map.get(docId) || {};
+  const merged = merge ? { ...existing, ...data, id: docId } : { ...data, id: docId };
+  map.set(docId, merged);
+
+  // Persist immediately to disk so CSV imports and stock updates never clear on refresh
+  persistDatabaseToDisk(true);
+
+  // Asynchronously persist to Firestore REST without blocking API latency
+  restSetDoc(collectionName, docId, merged).catch((err) => {
+    console.warn(`[Firestore Save] Failed for ${collectionName}/${docId}:`, err);
+  });
 }
 
 // Resilient document deleter
 async function removeDocument(collectionName: string, docId: string): Promise<void> {
-  try {
-    await adminDb.collection(collectionName).doc(docId).delete();
-  } catch {
-    await restDeleteDoc(collectionName, docId);
-  }
+  const map = getStoreMap(collectionName);
+  map.delete(docId);
+  persistDatabaseToDisk(true);
+  restDeleteDoc(collectionName, docId).catch((err) => {
+    console.warn(`[Firestore Delete] Failed for ${collectionName}/${docId}:`, err);
+  });
 }
 
 // 1. Database Status
@@ -133,7 +240,16 @@ export async function getProducts(category?: string, search?: string): Promise<P
     let items: Product[] = await fetchCollection<Product>('products');
 
     if (category && category.toLowerCase() !== 'all') {
-      items = items.filter((p) => p.category?.toLowerCase() === category.toLowerCase());
+      const cleanCat = category.toLowerCase().replace(/[^a-z0-9]/g, '');
+      items = items.filter((p) => {
+        if (!p.category) return false;
+        const cleanProdCat = p.category.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return (
+          cleanProdCat === cleanCat ||
+          cleanProdCat.includes(cleanCat) ||
+          cleanCat.includes(cleanProdCat)
+        );
+      });
     }
 
     if (search) {
@@ -142,7 +258,9 @@ export async function getProducts(category?: string, search?: string): Promise<P
         (p) =>
           p.name?.toLowerCase().includes(qStr) ||
           p.description?.toLowerCase().includes(qStr) ||
-          p.brand?.toLowerCase().includes(qStr)
+          p.brand?.toLowerCase().includes(qStr) ||
+          p.category?.toLowerCase().includes(qStr) ||
+          p.sku?.toLowerCase().includes(qStr)
       );
     }
 
@@ -338,30 +456,48 @@ export async function toggleWishlist(product: Product, userId = 'guest'): Promis
 
 // 4. Orders
 export async function createOrder(orderData: Partial<Order>): Promise<Order> {
-  const orderId = orderData.id || `BLZ-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const orderId = orderData.orderId || orderData.id || `NG-${Date.now().toString().slice(-6)}`;
   const newOrder: Order = {
     id: orderId,
-    orderId: orderData.orderId || orderId,
+    orderId: orderId,
     userId: orderData.userId || 'guest',
     customer: orderData.customer || {
-      name: 'Customer',
-      email: 'customer@example.com',
+      name: (orderData as any).name || 'Customer',
+      email: (orderData as any).email || (orderData as any).userEmail || 'customer@example.com',
+      phone: (orderData as any).phone || '',
+      address: (orderData as any).address || 'Standard Delivery Address',
+      city: (orderData as any).city || 'Lagos',
+      state: (orderData as any).state || 'Lagos State',
+      country: 'Nigeria',
     },
     items: orderData.items || [],
     subtotal: orderData.subtotal || 0,
     discount: orderData.discount || 0,
     shipping: orderData.shipping || 0,
+    tax: (orderData as any).tax || 0,
     total: orderData.total || 0,
+    currency: orderData.currency || 'NGN',
+    currencySymbol: orderData.currencySymbol || '₦',
     status: orderData.status || 'processing',
     paymentMethod: orderData.paymentMethod || 'paystack',
-    paymentRef: orderData.paymentRef,
+    paymentStatus: orderData.paymentStatus || 'paid',
+    paymentRef: (orderData as any).paymentReference || orderData.paymentRef,
+    deliveryType: (orderData as any).deliveryType || 'delivery',
+    pickupStation: (orderData as any).pickupStation,
     createdAt: orderData.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     timeline: orderData.timeline || [
       {
         status: 'Order Placed',
         title: 'Order Confirmed',
-        description: 'Your order was verified and saved to Firestore.',
+        description: 'Your order was verified and saved to database.',
+        timestamp: new Date().toISOString(),
+        isCompleted: true,
+      },
+      {
+        status: 'Processing',
+        title: 'Preparing for Dispatch',
+        description: 'Items are being packed at the fulfillment center.',
         timestamp: new Date().toISOString(),
         isCompleted: true,
       },
@@ -372,12 +508,80 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
 
   await saveDocument('orders', orderId, newOrder);
 
+  // In-App Notification Dispatch
+  try {
+    const notifId = `notif-${Date.now()}`;
+    await saveDocument('notifications', notifId, {
+      id: notifId,
+      title: `Order Confirmed #${orderId}`,
+      message: `Your order for ₦${(newOrder.total || 0).toLocaleString()} (${newOrder.items.length} item${newOrder.items.length === 1 ? '' : 's'}) has been confirmed!`,
+      type: 'order',
+      userId: newOrder.userId,
+      isRead: false,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (notifErr) {
+    console.warn('[Notification Notice]:', notifErr);
+  }
+
   // Trigger background order confirmation email
   sendOrderConfirmationEmail(newOrder).catch((err) => {
     console.warn('[Email Dispatch Notice]:', err?.message || err);
   });
 
   return newOrder;
+}
+
+export async function getUserOrders(userId?: string, email?: string, orderId?: string): Promise<Order[]> {
+  const orders = await fetchCollection<Order>('orders');
+  
+  if (orderId && orderId.trim()) {
+    const cleanId = orderId.trim().toLowerCase();
+    const matched = orders.filter(
+      (o) =>
+        (o.orderId && o.orderId.toLowerCase() === cleanId) ||
+        (o.id && o.id.toLowerCase() === cleanId) ||
+        (o.paymentRef && o.paymentRef.toLowerCase() === cleanId)
+    );
+    if (matched.length > 0) return matched;
+  }
+
+  const cleanUserId = (userId || '').trim();
+  const cleanEmail = (email || '').trim().toLowerCase();
+
+  let filtered = orders.filter((o) => {
+    if (cleanUserId && cleanUserId !== 'guest' && cleanUserId !== 'guest-visitor' && o.userId === cleanUserId) {
+      return true;
+    }
+    if (cleanEmail && o.customer?.email && o.customer.email.toLowerCase() === cleanEmail) {
+      return true;
+    }
+    return false;
+  });
+
+  // If user filter returned empty and query didn't specify credentials, return all recent orders
+  if (filtered.length === 0 && (!cleanUserId || cleanUserId === 'guest') && !cleanEmail) {
+    filtered = orders;
+  }
+
+  filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return filtered;
+}
+
+export async function getOrderById(orderId: string): Promise<Order | null> {
+  const cleanId = (orderId || '').trim().toLowerCase();
+  if (!cleanId) return null;
+  const doc = await fetchDocument<Order>('orders', orderId);
+  if (doc) return doc;
+  const orders = await fetchCollection<Order>('orders');
+  return (
+    orders.find(
+      (o) =>
+        (o.orderId && o.orderId.toLowerCase() === cleanId) ||
+        (o.id && o.id.toLowerCase() === cleanId) ||
+        (o.paymentRef && o.paymentRef.toLowerCase() === cleanId)
+    ) || null
+  );
 }
 
 export async function updateOrderPaymentByReference(reference: string, paymentDetails: any): Promise<void> {

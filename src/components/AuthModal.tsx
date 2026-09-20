@@ -15,6 +15,7 @@ import {
   ShoppingBag
 } from 'lucide-react';
 import { User } from '../types';
+import { auth } from '../lib/firebase';
 import {
   registerWithEmail,
   signInWithEmail,
@@ -88,42 +89,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           throw new Error('Password must be at least 6 characters.');
         }
 
-        let userResult: User;
+        // 1. Register with Firebase Auth on client side
+        const fbRes = await registerWithEmail({
+          name: formData.name.trim(),
+          email: formData.email.trim().toLowerCase(),
+          password: formData.password,
+          phone: formData.phone.trim(),
+          roleType: 'customer',
+        });
 
-        // 1. Create on Server / Database
+        // 2. Fetch Firebase ID token
+        const idToken = (await auth.currentUser?.getIdToken()) || undefined;
+
+        // 3. Sync profile with backend API using ID token
+        let userResult = fbRes.user;
         try {
           const apiRes = await api.registerUser({
+            idToken,
             name: formData.name.trim(),
             email: formData.email.trim().toLowerCase(),
-            password: formData.password,
             phone: formData.phone.trim(),
             roleType: 'customer',
           });
-          userResult = apiRes.user;
+          if (apiRes && apiRes.user) {
+            userResult = apiRes.user;
+          }
         } catch (apiErr: any) {
-          console.warn('API register notice:', apiErr);
-          userResult = {
-            id: `usr-${Date.now()}`,
-            name: formData.name.trim(),
-            email: formData.email.trim().toLowerCase(),
-            phone: formData.phone.trim() || '',
-            role: 'Customer',
-            roleType: 'customer',
-            createdAt: new Date().toISOString(),
-          };
-        }
-
-        // 2. Also register with Firebase Auth
-        try {
-          await registerWithEmail({
-            name: formData.name.trim(),
-            email: formData.email.trim().toLowerCase(),
-            password: formData.password,
-            phone: formData.phone.trim(),
-            roleType: 'customer',
-          });
-        } catch (fbErr: any) {
-          console.warn('Firebase registration notice:', fbErr.message);
+          console.warn('API register sync notice:', apiErr?.message);
         }
 
         setSuccessMsg('🎉 Account created successfully! Welcome to BlazeStore.');
@@ -140,79 +132,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           throw new Error('Please enter your password.');
         }
 
-        let resUser: User | null = null;
-        let lastError: any = null;
+        // 1. Authenticate with Firebase Auth (enforces password check!)
+        const fbRes = await signInWithEmail({
+          email: formData.email.trim(),
+          password: formData.password,
+        });
 
-        // First attempt Firebase Auth
+        if (!fbRes || !fbRes.user) {
+          throw new Error('Incorrect email or password. Please try again.');
+        }
+
+        let resUser: User = fbRes.user;
+
+        // 2. Fetch Firebase ID token
+        const idToken = (await auth.currentUser?.getIdToken()) || undefined;
+
+        // 3. Sync/verify login session with backend API
         try {
-          const fbRes = await signInWithEmail({
+          const apiRes = await api.loginUser({
+            idToken,
             email: formData.email.trim(),
-            password: formData.password,
           });
-          if (fbRes && fbRes.user) {
-            resUser = fbRes.user;
+          if (apiRes && apiRes.user) {
+            resUser = apiRes.user;
           }
-        } catch (fbErr: any) {
-          lastError = fbErr;
-        }
-
-        // If Firebase Auth didn't resolve, check Server API
-        if (!resUser) {
-          try {
-            const apiRes = await api.loginUser({
-              email: formData.email.trim(),
-              password: formData.password,
-            });
-            if (apiRes && apiRes.user) {
-              resUser = apiRes.user;
-            }
-          } catch (apiErr: any) {
-            lastError = apiErr;
-          }
-        }
-
-        // Seamless sign in for known administrator accounts
-        if (!resUser) {
-          const emailClean = formData.email.trim().toLowerCase();
-          const isOwnerCred = ['azetablessingb@gmail.com', 'owner@blazestore.com'].includes(emailClean);
-          const isManagerCred = ['blessing.waydiva@gmail.com', 'manager@blazestore.com'].includes(emailClean);
-
-          if (isOwnerCred || isManagerCred) {
-            const targetRole = isOwnerCred ? 'owner' : 'manager';
-            const defaultName = isOwnerCred ? 'Azeta Blessing' : 'Blessing Waydiva';
-            try {
-              const regRes = await registerWithEmail({
-                name: defaultName,
-                email: emailClean,
-                password: formData.password,
-                roleType: targetRole,
-              });
-              resUser = regRes.user;
-            } catch {
-              const fallbackApi = await api.registerUser({
-                name: defaultName,
-                email: emailClean,
-                password: formData.password,
-                roleType: targetRole,
-              });
-              resUser = fallbackApi.user;
-            }
-          }
-        }
-
-        if (!resUser) {
-          let friendly = 'Invalid email or password. If you do not have an account yet, please click "Sign Up" above.';
-          if (lastError?.code === 'auth/wrong-password' || lastError?.message?.includes('wrong-password')) {
-            friendly = 'Incorrect password. Please verify and try again.';
-          } else if (lastError?.message && !lastError.message.includes('auth/') && !lastError.message.includes('Firebase:')) {
-            friendly = lastError.message;
-          }
-          throw new Error(friendly);
+        } catch (apiErr: any) {
+          console.warn('Backend login sync warning:', apiErr?.message);
         }
 
         setSuccessMsg(`Welcome back, ${resUser.name}!`);
         setTimeout(() => {
-          onAuthSuccess(resUser!, false);
+          onAuthSuccess(resUser, false);
           onClose();
         }, 800);
       }

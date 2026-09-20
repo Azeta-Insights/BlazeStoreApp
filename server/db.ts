@@ -1,17 +1,6 @@
-import { firestoreDb } from './firebase';
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  query,
-  limit,
-  writeBatch
-} from 'firebase/firestore';
+import { adminDb, adminAuth } from './firebase';
 import { Product, CartItem, NotificationItem, User, Order, RefundRecord, AdminRole } from '../src/types';
-import { generateJwtToken, verifyJwtToken } from './auth';
+import { verifyFirebaseIdToken } from './auth';
 import { BEST_DEALS, RECOMMENDED_PRODUCTS } from '../src/data/mockData';
 
 // Helper to determine admin roles based on email
@@ -39,16 +28,14 @@ export function getRoleForEmail(email: string): { role: string; roleType: AdminR
 // 1. Database Status
 export async function getDatabaseStatus(force = false) {
   try {
-    const colRef = collection(firestoreDb, 'products');
-    const q = query(colRef, limit(1));
     const start = performance.now();
-    await getDocs(q);
+    await adminDb.collection('products').limit(1).get();
     const end = performance.now();
     return {
       connected: true,
       isUsingFallback: false,
-      database: 'Cloud Firestore (BlazeStore)',
-      provider: 'firestore',
+      database: 'Cloud Firestore Admin (BlazeStore)',
+      provider: 'firestore-admin',
       hasUri: true,
       pingMs: Math.max(1, Math.round(end - start)),
       error: null,
@@ -57,8 +44,8 @@ export async function getDatabaseStatus(force = false) {
     return {
       connected: false,
       isUsingFallback: false,
-      database: 'Cloud Firestore (BlazeStore)',
-      provider: 'firestore',
+      database: 'Cloud Firestore Admin (BlazeStore)',
+      provider: 'firestore-admin',
       hasUri: true,
       pingMs: 0,
       error: err?.message || '503 Service Unavailable: Firestore connection failed',
@@ -69,8 +56,7 @@ export async function getDatabaseStatus(force = false) {
 // 2. Products
 export async function getProducts(category?: string, search?: string): Promise<Product[]> {
   try {
-    const colRef = collection(firestoreDb, 'products');
-    const snap = await getDocs(colRef);
+    const snap = await adminDb.collection('products').get();
     let items: Product[] = [];
     snap.forEach((d) => items.push({ ...(d.data() as Product), id: d.id }));
 
@@ -94,7 +80,7 @@ export async function getProducts(category?: string, search?: string): Promise<P
 
     return items;
   } catch (err: any) {
-    console.warn('[Firestore] getProducts fallback to catalog:', err?.message);
+    console.warn('[Firestore Admin] getProducts fallback to catalog:', err?.message);
     return [...BEST_DEALS, ...RECOMMENDED_PRODUCTS];
   }
 }
@@ -104,9 +90,9 @@ export async function getAllProductsAdmin(category?: string, search?: string): P
 }
 
 export async function updateProductStock(id: string, stockQuantity: number, inStock?: boolean): Promise<Product> {
-  const docRef = doc(firestoreDb, 'products', id);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) {
+  const docRef = adminDb.collection('products').doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) {
     throw new Error(`Product ${id} not found in Firestore.`);
   }
   const current = snap.data() as Product;
@@ -116,7 +102,7 @@ export async function updateProductStock(id: string, stockQuantity: number, inSt
     inStock: inStock !== undefined ? inStock : stockQuantity > 0,
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return updated;
 }
 
@@ -139,38 +125,38 @@ export async function createProductAdmin(data: Partial<Product>): Promise<Produc
     isDeal: Boolean(data.isDeal),
     createdAt: new Date().toISOString(),
   };
-  await setDoc(doc(firestoreDb, 'products', id), newProduct);
+  await adminDb.collection('products').doc(id).set(newProduct);
   return newProduct;
 }
 
 export async function updateProductAdmin(id: string, data: Partial<Product>): Promise<Product> {
-  const docRef = doc(firestoreDb, 'products', id);
-  const snap = await getDoc(docRef);
-  const existing = snap.exists() ? (snap.data() as Product) : { id, name: 'Product', price: 0 };
+  const docRef = adminDb.collection('products').doc(id);
+  const snap = await docRef.get();
+  const existing = snap.exists ? (snap.data() as Product) : { id, name: 'Product', price: 0 };
   const updated = { ...existing, ...data, id, updatedAt: new Date().toISOString() };
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return updated as Product;
 }
 
 export async function deleteProductAdmin(id: string): Promise<{ success: boolean; message: string }> {
-  await deleteDoc(doc(firestoreDb, 'products', id));
+  await adminDb.collection('products').doc(id).delete();
   return { success: true, message: `Product ${id} removed from Firestore.` };
 }
 
 export async function clearAllProductsAdmin(): Promise<{ success: boolean; message: string }> {
-  const snap = await getDocs(collection(firestoreDb, 'products'));
-  const batch = writeBatch(firestoreDb);
+  const snap = await adminDb.collection('products').get();
+  const batch = adminDb.batch();
   snap.docs.forEach((d) => batch.delete(d.ref));
   await batch.commit();
   return { success: true, message: 'All products cleared from Firestore.' };
 }
 
 export async function bulkCreateProductsAdmin(products: Partial<Product>[]): Promise<{ success: boolean; count: number }> {
-  const batch = writeBatch(firestoreDb);
+  const batch = adminDb.batch();
   let count = 0;
   products.forEach((p) => {
     const id = p.id || `prod-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const docRef = doc(firestoreDb, 'products', id);
+    const docRef = adminDb.collection('products').doc(id);
     batch.set(docRef, { ...p, id, createdAt: new Date().toISOString() }, { merge: true });
     count++;
   });
@@ -180,18 +166,18 @@ export async function bulkCreateProductsAdmin(products: Partial<Product>[]): Pro
 
 // 3. Cart & Wishlist
 export async function getCart(userId = 'guest'): Promise<CartItem[]> {
-  const docRef = doc(firestoreDb, 'carts', userId);
-  const snap = await getDoc(docRef);
-  if (snap.exists()) {
-    return snap.data().items || [];
+  const docRef = adminDb.collection('carts').doc(userId);
+  const snap = await docRef.get();
+  if (snap.exists) {
+    return snap.data()?.items || [];
   }
   return [];
 }
 
 export async function addToCart(item: any, userId = 'guest'): Promise<CartItem[]> {
-  const docRef = doc(firestoreDb, 'carts', userId);
-  const snap = await getDoc(docRef);
-  let items: CartItem[] = snap.exists() ? snap.data().items || [] : [];
+  const docRef = adminDb.collection('carts').doc(userId);
+  const snap = await docRef.get();
+  let items: CartItem[] = snap.exists ? snap.data()?.items || [] : [];
 
   const existingIdx = items.findIndex((i) => i.productId === (item.productId || item.id));
   if (existingIdx > -1) {
@@ -210,53 +196,53 @@ export async function addToCart(item: any, userId = 'guest'): Promise<CartItem[]
     });
   }
 
-  await setDoc(docRef, { userId, items, updatedAt: new Date().toISOString() }, { merge: true });
+  await docRef.set({ userId, items, updatedAt: new Date().toISOString() }, { merge: true });
   return items;
 }
 
 export async function updateCartQuantity(itemId: string, delta: number, userId = 'guest'): Promise<CartItem[]> {
-  const docRef = doc(firestoreDb, 'carts', userId);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) return [];
+  const docRef = adminDb.collection('carts').doc(userId);
+  const snap = await docRef.get();
+  if (!snap.exists) return [];
 
-  let items: CartItem[] = snap.data().items || [];
+  let items: CartItem[] = snap.data()?.items || [];
   items = items
     .map((i) => (i.id === itemId ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i))
     .filter((i) => i.quantity > 0);
 
-  await setDoc(docRef, { userId, items, updatedAt: new Date().toISOString() }, { merge: true });
+  await docRef.set({ userId, items, updatedAt: new Date().toISOString() }, { merge: true });
   return items;
 }
 
 export async function removeFromCart(itemId: string, userId = 'guest'): Promise<CartItem[]> {
-  const docRef = doc(firestoreDb, 'carts', userId);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) return [];
+  const docRef = adminDb.collection('carts').doc(userId);
+  const snap = await docRef.get();
+  if (!snap.exists) return [];
 
-  let items: CartItem[] = (snap.data().items || []).filter((i: CartItem) => i.id !== itemId);
-  await setDoc(docRef, { userId, items, updatedAt: new Date().toISOString() }, { merge: true });
+  let items: CartItem[] = (snap.data()?.items || []).filter((i: CartItem) => i.id !== itemId);
+  await docRef.set({ userId, items, updatedAt: new Date().toISOString() }, { merge: true });
   return items;
 }
 
 export async function clearCart(userId = 'guest'): Promise<CartItem[]> {
-  const docRef = doc(firestoreDb, 'carts', userId);
-  await setDoc(docRef, { userId, items: [], updatedAt: new Date().toISOString() }, { merge: true });
+  const docRef = adminDb.collection('carts').doc(userId);
+  await docRef.set({ userId, items: [], updatedAt: new Date().toISOString() }, { merge: true });
   return [];
 }
 
 export async function getWishlist(userId = 'guest'): Promise<Product[]> {
-  const docRef = doc(firestoreDb, 'wishlists', userId);
-  const snap = await getDoc(docRef);
-  if (snap.exists()) {
-    return snap.data().items || [];
+  const docRef = adminDb.collection('wishlists').doc(userId);
+  const snap = await docRef.get();
+  if (snap.exists) {
+    return snap.data()?.items || [];
   }
   return [];
 }
 
 export async function toggleWishlist(product: Product, userId = 'guest'): Promise<Product[]> {
-  const docRef = doc(firestoreDb, 'wishlists', userId);
-  const snap = await getDoc(docRef);
-  let items: Product[] = snap.exists() ? snap.data().items || [] : [];
+  const docRef = adminDb.collection('wishlists').doc(userId);
+  const snap = await docRef.get();
+  let items: Product[] = snap.exists ? snap.data()?.items || [] : [];
 
   const idx = items.findIndex((p) => p.id === product.id);
   if (idx > -1) {
@@ -265,7 +251,7 @@ export async function toggleWishlist(product: Product, userId = 'guest'): Promis
     items.unshift(product);
   }
 
-  await setDoc(docRef, { userId, items, updatedAt: new Date().toISOString() }, { merge: true });
+  await docRef.set({ userId, items, updatedAt: new Date().toISOString() }, { merge: true });
   return items;
 }
 
@@ -303,17 +289,16 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
     refundStatus: 'none',
   };
 
-  await setDoc(doc(firestoreDb, 'orders', orderId), newOrder);
+  await adminDb.collection('orders').doc(orderId).set(newOrder);
   return newOrder;
 }
 
 export async function updateOrderPaymentByReference(reference: string, paymentDetails: any): Promise<void> {
-  const colRef = collection(firestoreDb, 'orders');
-  const snap = await getDocs(colRef);
+  const snap = await adminDb.collection('orders').get();
   snap.forEach((d) => {
     const data = d.data() as Order;
     if (data.paymentRef === reference || data.orderId === reference || d.id === reference) {
-      setDoc(doc(firestoreDb, 'orders', d.id), {
+      adminDb.collection('orders').doc(d.id).set({
         ...data,
         paymentStatus: paymentDetails.paid ? 'paid' : 'failed',
         updatedAt: new Date().toISOString(),
@@ -323,8 +308,7 @@ export async function updateOrderPaymentByReference(reference: string, paymentDe
 }
 
 export async function getAllOrders(status?: string, search?: string): Promise<Order[]> {
-  const colRef = collection(firestoreDb, 'orders');
-  const snap = await getDocs(colRef);
+  const snap = await adminDb.collection('orders').get();
   let orders: Order[] = [];
   snap.forEach((d) => orders.push({ ...(d.data() as Order), id: d.id }));
 
@@ -347,9 +331,9 @@ export async function getAllOrders(status?: string, search?: string): Promise<Or
 }
 
 export async function updateOrderStatus(orderId: string, status: string, adminInfo?: { name: string; role: string }): Promise<Order> {
-  const docRef = doc(firestoreDb, 'orders', orderId);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) {
+  const docRef = adminDb.collection('orders').doc(orderId);
+  const snap = await docRef.get();
+  if (!snap.exists) {
     throw new Error(`Order ${orderId} not found.`);
   }
   const existing = snap.data() as Order;
@@ -369,12 +353,12 @@ export async function updateOrderStatus(orderId: string, status: string, adminIn
     updatedAt: new Date().toISOString(),
   };
 
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return updated;
 }
 
 export async function deleteOrderAdmin(orderId: string): Promise<{ success: boolean; message: string }> {
-  await deleteDoc(doc(firestoreDb, 'orders', orderId));
+  await adminDb.collection('orders').doc(orderId).delete();
   return { success: true, message: `Order ${orderId} deleted from Firestore.` };
 }
 
@@ -400,30 +384,30 @@ export async function processRefund(refundData: any): Promise<{ success: boolean
     createdAt: new Date().toISOString(),
   };
 
-  await setDoc(doc(firestoreDb, 'refunds', refundId), newRefund);
+  await adminDb.collection('refunds').doc(refundId).set(newRefund);
   return { success: true, refund: newRefund };
 }
 
 export async function approveRefund(id: string, ownerName: string): Promise<{ success: boolean; refund: RefundRecord }> {
-  const docRef = doc(firestoreDb, 'refunds', id);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) throw new Error(`Refund ${id} not found.`);
+  const docRef = adminDb.collection('refunds').doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error(`Refund ${id} not found.`);
   const updated = { ...(snap.data() as RefundRecord), status: 'approved' as const, approvedBy: ownerName };
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return { success: true, refund: updated };
 }
 
 export async function rejectRefund(id: string, ownerName: string): Promise<{ success: boolean; refund: RefundRecord }> {
-  const docRef = doc(firestoreDb, 'refunds', id);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) throw new Error(`Refund ${id} not found.`);
+  const docRef = adminDb.collection('refunds').doc(id);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error(`Refund ${id} not found.`);
   const updated = { ...(snap.data() as RefundRecord), status: 'rejected' as const, rejectedBy: ownerName };
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return { success: true, refund: updated };
 }
 
 export async function getRefunds(): Promise<RefundRecord[]> {
-  const snap = await getDocs(collection(firestoreDb, 'refunds'));
+  const snap = await adminDb.collection('refunds').get();
   const list: RefundRecord[] = [];
   snap.forEach((d) => list.push({ ...(d.data() as RefundRecord), id: d.id }));
   list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -431,59 +415,93 @@ export async function getRefunds(): Promise<RefundRecord[]> {
 }
 
 // 6. Users & Authentication
+// Synchronizes or registers user profile in Firestore after Firebase Auth verification
 export async function registerUser(userData: {
+  idToken?: string;
   name: string;
   email: string;
-  password?: string;
   phone?: string;
   roleType?: AdminRole;
-}): Promise<{ user: User; token?: string; message: string }> {
+}): Promise<{ user: User; message: string }> {
   const cleanEmail = userData.email.trim().toLowerCase();
+  let uid = '';
+
+  if (userData.idToken) {
+    const verified = await verifyFirebaseIdToken(userData.idToken);
+    if (verified) {
+      uid = verified.uid;
+    }
+  }
+
+  if (!uid) {
+    uid = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+  }
+
   const roleInfo = getRoleForEmail(cleanEmail);
   const roleType = userData.roleType || roleInfo.roleType;
   const role = roleType === 'owner' ? 'Store Owner' : roleType === 'manager' ? 'Store Manager' : roleInfo.role;
 
-  const docId = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
-  const userDocRef = doc(firestoreDb, 'users', docId);
-  const newUser: User = {
-    id: docId,
-    name: userData.name,
-    email: cleanEmail,
-    phone: userData.phone || '',
-    role,
-    roleType,
-    createdAt: new Date().toISOString(),
-    totalOrders: 0,
-    totalSpent: 0,
-  };
+  const userDocRef = adminDb.collection('users').doc(uid);
+  const snap = await userDocRef.get();
 
-  await setDoc(userDocRef, newUser, { merge: true });
+  let newUser: User;
+  if (snap.exists) {
+    newUser = snap.data() as User;
+  } else {
+    newUser = {
+      id: uid,
+      name: userData.name || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      phone: userData.phone || '',
+      role,
+      roleType,
+      createdAt: new Date().toISOString(),
+      totalOrders: 0,
+      totalSpent: 0,
+    };
+    await userDocRef.set(newUser, { merge: true });
+  }
 
-  const token = generateJwtToken({
-    id: newUser.id,
-    email: newUser.email,
-    name: newUser.name,
-    role: newUser.role,
-    roleType: newUser.roleType,
-  });
-
-  return { user: newUser, token, message: 'User profile stored in Firestore.' };
+  return { user: newUser, message: 'User profile stored in Firestore.' };
 }
 
-export async function loginUser(credentials: { email: string; password?: string }): Promise<{ user: User; token?: string; message: string }> {
+// Verifies Firebase Auth ID Token or profile from Firestore
+export async function loginUser(credentials: {
+  idToken?: string;
+  email: string;
+}): Promise<{ user: User; message: string }> {
   const cleanEmail = credentials.email.trim().toLowerCase();
-  const roleInfo = getRoleForEmail(cleanEmail);
 
-  const docId = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
-  const userDocRef = doc(firestoreDb, 'users', docId);
-  const snap = await getDoc(userDocRef);
+  let uid = '';
+  if (credentials.idToken) {
+    const verified = await verifyFirebaseIdToken(credentials.idToken);
+    if (!verified) {
+      throw new Error('Invalid or expired Firebase Auth token. Access denied.');
+    }
+    uid = verified.uid;
+  }
+
+  if (!uid) {
+    // If idToken is missing, look up by Firebase Auth user or reject
+    try {
+      const fbUser = await adminAuth.getUserByEmail(cleanEmail);
+      uid = fbUser.uid;
+    } catch {
+      throw new Error('Authentication required. Please sign in via Firebase Auth.');
+    }
+  }
+
+  const userDocRef = adminDb.collection('users').doc(uid);
+  const snap = await userDocRef.get();
 
   let user: User;
-  if (snap.exists()) {
+  const roleInfo = getRoleForEmail(cleanEmail);
+
+  if (snap.exists) {
     user = snap.data() as User;
   } else {
     user = {
-      id: docId,
+      id: uid,
       name: cleanEmail.includes('owner') ? 'Azeta Blessing' : cleanEmail.includes('manager') ? 'Blessing Waydiva' : cleanEmail.split('@')[0],
       email: cleanEmail,
       phone: '',
@@ -493,37 +511,29 @@ export async function loginUser(credentials: { email: string; password?: string 
       totalOrders: 0,
       totalSpent: 0,
     };
-    await setDoc(userDocRef, user);
+    await userDocRef.set(user);
   }
 
-  const token = generateJwtToken({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    roleType: user.roleType,
-  });
-
-  return { user, token, message: 'Logged in successfully.' };
+  return { user, message: 'Authenticated successfully with Firebase Auth.' };
 }
 
-export async function getCurrentUser(token?: string): Promise<User | null> {
-  if (!token) return null;
-  const payload = verifyJwtToken(token);
-  if (!payload) return null;
+export async function getCurrentUser(idToken?: string): Promise<User | null> {
+  if (!idToken) return null;
+  const verified = await verifyFirebaseIdToken(idToken);
+  if (!verified) return null;
 
-  const docId = payload.email.replace(/[^a-zA-Z0-9]/g, '_');
-  const snap = await getDoc(doc(firestoreDb, 'users', docId));
-  if (snap.exists()) {
+  const snap = await adminDb.collection('users').doc(verified.uid).get();
+  if (snap.exists) {
     return snap.data() as User;
   }
 
+  const roleInfo = getRoleForEmail(verified.email || '');
   return {
-    id: payload.id,
-    name: payload.name,
-    email: payload.email,
-    role: payload.role,
-    roleType: payload.roleType as AdminRole,
+    id: verified.uid,
+    name: verified.name || 'User',
+    email: verified.email || '',
+    role: roleInfo.role,
+    roleType: roleInfo.roleType,
     createdAt: new Date().toISOString(),
   };
 }
@@ -533,32 +543,32 @@ export async function logoutUser(): Promise<{ success: boolean; message: string 
 }
 
 export async function getAllUsers(): Promise<User[]> {
-  const snap = await getDocs(collection(firestoreDb, 'users'));
+  const snap = await adminDb.collection('users').get();
   const users: User[] = [];
   snap.forEach((d) => users.push({ ...(d.data() as User), id: d.id }));
   return users;
 }
 
 export async function updateUserRole(id: string, role: string, roleType: AdminRole): Promise<User> {
-  const docRef = doc(firestoreDb, 'users', id);
-  const snap = await getDoc(docRef);
-  const existing = snap.exists() ? (snap.data() as User) : { id, name: 'User', email: '' };
+  const docRef = adminDb.collection('users').doc(id);
+  const snap = await docRef.get();
+  const existing = snap.exists ? (snap.data() as User) : { id, name: 'User', email: '' };
   const updated = { ...existing, role, roleType, updatedAt: new Date().toISOString() };
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return updated as User;
 }
 
 export async function updateUserAdmin(id: string, data: Partial<User>): Promise<User> {
-  const docRef = doc(firestoreDb, 'users', id);
-  const snap = await getDoc(docRef);
-  const existing = snap.exists() ? (snap.data() as User) : { id, name: 'User', email: '' };
+  const docRef = adminDb.collection('users').doc(id);
+  const snap = await docRef.get();
+  const existing = snap.exists ? (snap.data() as User) : { id, name: 'User', email: '' };
   const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
-  await setDoc(docRef, updated, { merge: true });
+  await docRef.set(updated, { merge: true });
   return updated as User;
 }
 
 export async function deleteUserAdmin(id: string): Promise<{ success: boolean; message: string }> {
-  await deleteDoc(doc(firestoreDb, 'users', id));
+  await adminDb.collection('users').doc(id).delete();
   return { success: true, message: `User ${id} removed from Firestore.` };
 }
 
@@ -578,22 +588,22 @@ export async function getSalesAnalytics(): Promise<any> {
 
 export async function getDbCollectionsInfo(): Promise<any[]> {
   const [pSnap, oSnap, rSnap, uSnap] = await Promise.all([
-    getDocs(collection(firestoreDb, 'products')).catch(() => ({ size: 0 })),
-    getDocs(collection(firestoreDb, 'orders')).catch(() => ({ size: 0 })),
-    getDocs(collection(firestoreDb, 'refunds')).catch(() => ({ size: 0 })),
-    getDocs(collection(firestoreDb, 'users')).catch(() => ({ size: 0 })),
+    adminDb.collection('products').get().catch(() => ({ size: 0 })),
+    adminDb.collection('orders').get().catch(() => ({ size: 0 })),
+    adminDb.collection('refunds').get().catch(() => ({ size: 0 })),
+    adminDb.collection('users').get().catch(() => ({ size: 0 })),
   ]);
 
   return [
-    { name: 'products', count: pSnap.size, type: 'Firestore Collection' },
-    { name: 'orders', count: oSnap.size, type: 'Firestore Collection' },
-    { name: 'refunds', count: rSnap.size, type: 'Firestore Collection' },
-    { name: 'users', count: uSnap.size, type: 'Firestore Collection' },
+    { name: 'products', count: pSnap.size, type: 'Firestore Collection (Admin SDK)' },
+    { name: 'orders', count: oSnap.size, type: 'Firestore Collection (Admin SDK)' },
+    { name: 'refunds', count: rSnap.size, type: 'Firestore Collection (Admin SDK)' },
+    { name: 'users', count: uSnap.size, type: 'Firestore Collection (Admin SDK)' },
   ];
 }
 
 export async function queryDbCollection(colName: string, opts: any): Promise<any> {
-  const snap = await getDocs(collection(firestoreDb, colName));
+  const snap = await adminDb.collection(colName).get();
   const docs: any[] = [];
   snap.forEach((d) => docs.push({ _id: d.id, id: d.id, ...d.data() }));
   return { documents: docs, count: docs.length };
@@ -601,17 +611,17 @@ export async function queryDbCollection(colName: string, opts: any): Promise<any
 
 export async function insertDbDocument(colName: string, docData: any): Promise<any> {
   const id = docData.id || docData._id || `doc-${Date.now()}`;
-  await setDoc(doc(firestoreDb, colName, id), { ...docData, id });
+  await adminDb.collection(colName).doc(id).set({ ...docData, id });
   return { success: true, documentId: id };
 }
 
 export async function updateDbDocument(colName: string, id: string, docData: any): Promise<any> {
-  await setDoc(doc(firestoreDb, colName, id), docData, { merge: true });
+  await adminDb.collection(colName).doc(id).set(docData, { merge: true });
   return { success: true, documentId: id };
 }
 
 export async function deleteDbDocument(colName: string, id: string): Promise<any> {
-  await deleteDoc(doc(firestoreDb, colName, id));
+  await adminDb.collection(colName).doc(id).delete();
   return { success: true, documentId: id };
 }
 
@@ -632,7 +642,7 @@ export async function seedCatalogToDatabase(): Promise<{ success: boolean; messa
 }
 
 export async function getNotifications(): Promise<NotificationItem[]> {
-  const snap = await getDocs(collection(firestoreDb, 'notifications'));
+  const snap = await adminDb.collection('notifications').get();
   const list: NotificationItem[] = [];
   snap.forEach((d) => list.push({ ...(d.data() as NotificationItem), id: d.id }));
   return list;
@@ -640,20 +650,20 @@ export async function getNotifications(): Promise<NotificationItem[]> {
 
 export async function markNotificationsRead(): Promise<NotificationItem[]> {
   const list = await getNotifications();
-  const batch = writeBatch(firestoreDb);
+  const batch = adminDb.batch();
   list.forEach((n) => {
-    batch.set(doc(firestoreDb, 'notifications', n.id), { isRead: true }, { merge: true });
+    batch.set(adminDb.collection('notifications').doc(n.id), { isRead: true }, { merge: true });
   });
   await batch.commit();
   return list.map((n) => ({ ...n, isRead: true }));
 }
 
 export async function clearAllMockData(): Promise<{ success: boolean; message: string }> {
-  const batch = writeBatch(firestoreDb);
+  const batch = adminDb.batch();
 
   const [ordSnap, refSnap] = await Promise.all([
-    getDocs(collection(firestoreDb, 'orders')),
-    getDocs(collection(firestoreDb, 'refunds')),
+    adminDb.collection('orders').get(),
+    adminDb.collection('refunds').get(),
   ]);
 
   ordSnap.forEach((d) => batch.delete(d.ref));

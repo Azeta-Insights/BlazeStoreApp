@@ -1,6 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { parseCookies, verifyJwtToken } from './auth';
+import { parseCookies, verifyFirebaseIdToken } from './auth';
 import {
   getDatabaseStatus,
   getProducts,
@@ -607,14 +607,14 @@ export function createApp() {
   // 7. User Registration & Auth API
   apiRouter.post('/auth/register', async (req, res) => {
     try {
-      const { name, email, password, phone, roleType } = req.body || {};
-      if (!name || !email) {
-        return res.status(400).json({ success: false, error: 'Name and email are required.' });
+      const { idToken, name, email, phone, roleType } = req.body || {};
+      const authHeader = req.headers.authorization || '';
+      const tokenToVerify = idToken || (authHeader.startsWith('Bearer ') ? authHeader.substring(7) : undefined);
+
+      if (!email) {
+        return res.status(400).json({ success: false, error: 'Email is required.' });
       }
-      const result = await registerUser({ name, email, password, phone, roleType });
-      if (result.token) {
-        res.setHeader('Set-Cookie', `token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
-      }
+      const result = await registerUser({ idToken: tokenToVerify, name, email, phone, roleType });
       res.json({ success: true, ...result });
     } catch (err: any) {
       const status = err?.status || (err?.message?.includes('503 Service Unavailable') ? 503 : 400);
@@ -624,14 +624,14 @@ export function createApp() {
 
   apiRouter.post('/auth/login', async (req, res) => {
     try {
-      const { email, password } = req.body || {};
+      const { idToken, email } = req.body || {};
+      const authHeader = req.headers.authorization || '';
+      const tokenToVerify = idToken || (authHeader.startsWith('Bearer ') ? authHeader.substring(7) : undefined);
+
       if (!email) {
         return res.status(400).json({ success: false, error: 'Email is required.' });
       }
-      const result = await loginUser({ email, password });
-      if (result.token) {
-        res.setHeader('Set-Cookie', `token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
-      }
+      const result = await loginUser({ idToken: tokenToVerify, email });
       res.json({ success: true, ...result });
     } catch (err: any) {
       const status = err?.status || (err?.message?.includes('503 Service Unavailable') ? 503 : 400);
@@ -852,7 +852,7 @@ export function createApp() {
       if (!name || !email) {
         return res.status(400).json({ success: false, error: 'Name and email are required.' });
       }
-      const result = await registerUser({ name, email, password, phone, roleType });
+      const result = await registerUser({ name, email, phone, roleType });
       res.json({ success: true, user: result.user, message: 'Staff member account created.' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err?.message || 'Failed to create user' });

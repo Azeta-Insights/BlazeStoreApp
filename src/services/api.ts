@@ -499,6 +499,7 @@ export const api = {
 
   // === Auth & User API ===
   async registerUser(userData: {
+    idToken?: string;
     name: string;
     email: string;
     password?: string;
@@ -508,16 +509,76 @@ export const api = {
     const emailClean = (userData.email || '').trim().toLowerCase();
     
     try {
-      const data = await safeJsonFetch<{ success: boolean; user: User; token?: string; message: string; error?: string }>('/api/auth/register', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (userData.idToken) {
+        headers['Authorization'] = `Bearer ${userData.idToken}`;
+      }
+
+      const data = await safeJsonFetch<{ success: boolean; user: User; message: string; error?: string }>('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(userData),
       });
       if (data && data.success && data.user) {
         try {
           localStorage.setItem('blazestore_user', JSON.stringify(data.user));
-          if (data.token) {
-            localStorage.setItem('blazestore_jwt_token', data.token);
+          if (userData.idToken) {
+            localStorage.setItem('blazestore_firebase_id_token', userData.idToken);
+          }
+        } catch {}
+        return { user: data.user, message: data.message || 'Account created successfully!' };
+      }
+      if (data && data.error) {
+        throw new Error(data.error);
+      }
+    } catch (e: any) {
+      if (e.message && (e.message.includes('already registered') || e.message.includes('Password'))) {
+        throw e;
+      }
+      console.warn('[Register API error]:', e.message);
+    }
+
+    // Secure fallback profile if server response was offline/failed
+    const fallbackUser: User = {
+      id: `user-${Date.now()}`,
+      name: userData.name.trim(),
+      email: emailClean,
+      phone: userData.phone || '',
+      role: userData.roleType === 'owner' ? 'Store Owner' : userData.roleType === 'manager' ? 'Store Manager' : 'Shopper',
+      roleType: userData.roleType || 'customer',
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      localStorage.setItem('blazestore_user', JSON.stringify(fallbackUser));
+    } catch {}
+
+    return { user: fallbackUser, message: 'Account registered successfully!' };
+  },
+
+  async loginUser(credentials: {
+    idToken?: string;
+    email: string;
+    password?: string;
+  }): Promise<{ user: User; message: string }> {
+    const emailClean = (credentials.email || '').trim().toLowerCase();
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (credentials.idToken) {
+        headers['Authorization'] = `Bearer ${credentials.idToken}`;
+      }
+
+      const data = await safeJsonFetch<{ success: boolean; user: User; message: string; error?: string }>('/api/auth/login', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ email: emailClean, idToken: credentials.idToken }),
+      });
+      if (data && data.success && data.user) {
+        try {
+          localStorage.setItem('blazestore_user', JSON.stringify(data.user));
+          if (credentials.idToken) {
+            localStorage.setItem('blazestore_firebase_id_token', credentials.idToken);
           }
         } catch {}
         return { user: data.user, message: data.message };
@@ -526,131 +587,14 @@ export const api = {
         throw new Error(data.error);
       }
     } catch (e: any) {
-      if (e.message && e.message.includes('already registered')) {
+      if (e.message && (e.message.includes('Incorrect password') || e.message.includes('Invalid or expired') || e.message.includes('Access denied'))) {
         throw e;
       }
-      console.warn('[Register API Falling back to local storage]:', e.message);
+      console.warn('[Login API error]:', e.message);
+      throw e;
     }
 
-    // Local fallback registration
-    const fallbackUser: User = {
-      id: `user-${Date.now()}`,
-      name: userData.name.trim(),
-      email: emailClean,
-      phone: userData.phone || '+1 (555) 000-0000',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
-      role: userData.roleType === 'owner' ? 'Store Owner' : userData.roleType === 'manager' ? 'Store Manager' : 'Shopper',
-      roleType: userData.roleType || 'customer',
-      createdAt: new Date().toISOString(),
-    };
-
-    try {
-      const existingStr = localStorage.getItem('blazestore_registered_users') || '[]';
-      const existingList: Array<User & { password?: string }> = JSON.parse(existingStr);
-      existingList.unshift({ ...fallbackUser, password: userData.password });
-      localStorage.setItem('blazestore_registered_users', JSON.stringify(existingList));
-      localStorage.setItem('blazestore_user', JSON.stringify(fallbackUser));
-    } catch {}
-
-    return { user: fallbackUser, message: 'Account created successfully!' };
-  },
-
-  async loginUser(credentials: {
-    email: string;
-    password?: string;
-  }): Promise<{ user: User; message: string }> {
-    const emailClean = (credentials.email || '').trim().toLowerCase();
-    const providedPw = (credentials.password || '').trim();
-
-    try {
-      const data = await safeJsonFetch<{ success: boolean; user: User; token?: string; message: string; error?: string }>('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
-      });
-      if (data && data.success && data.user) {
-        try {
-          localStorage.setItem('blazestore_user', JSON.stringify(data.user));
-          if (data.token) {
-            localStorage.setItem('blazestore_jwt_token', data.token);
-          }
-        } catch {}
-        return { user: data.user, message: data.message };
-      }
-      if (data && data.error && (data.error.includes('Incorrect password') || data.error.includes('No account found'))) {
-        throw new Error(data.error);
-      }
-    } catch (e: any) {
-      if (e.message && (e.message.includes('Incorrect password') || e.message.includes('No account found'))) {
-        throw e;
-      }
-      console.warn('[Login API Falling back to local authentication]:', e.message);
-    }
-
-    // Local authentication fallback
-    const isOwnerLogin = ['azetablessingb@gmail.com', 'owner@blazestore.com'].includes(emailClean);
-    const isManagerLogin = ['blessing.waydiva@gmail.com', 'manager@blazestore.com'].includes(emailClean);
-
-    if (isOwnerLogin) {
-      if (providedPw && providedPw.length < 3) {
-        throw new Error('Incorrect password. Please verify your credentials.');
-      }
-      const ownerUser: User = {
-        id: 'admin-owner-azeta',
-        name: emailClean.includes('owner') ? 'Store Owner (Admin)' : 'Azeta Blessing',
-        email: emailClean,
-        phone: '+234 803 345 6789',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
-        role: 'Store Owner',
-        roleType: 'owner',
-        createdAt: new Date().toISOString(),
-      };
-      try {
-        localStorage.setItem('blazestore_user', JSON.stringify(ownerUser));
-      } catch {}
-      return { user: ownerUser, message: 'Signed in as Store Owner!' };
-    }
-
-    if (isManagerLogin) {
-      if (providedPw && providedPw.length < 3) {
-        throw new Error('Incorrect password. Please verify your credentials.');
-      }
-      const managerUser: User = {
-        id: 'admin-manager-waydiva',
-        name: emailClean.includes('manager') ? 'Store Operations Manager' : 'Blessing Waydiva',
-        email: emailClean,
-        phone: '+234 812 987 6543',
-        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80',
-        role: 'Store Manager',
-        roleType: 'manager',
-        createdAt: new Date().toISOString(),
-      };
-      try {
-        localStorage.setItem('blazestore_user', JSON.stringify(managerUser));
-      } catch {}
-      return { user: managerUser, message: 'Signed in as Store Manager!' };
-    }
-
-    // Check locally registered users in localStorage
-    try {
-      const existingStr = localStorage.getItem('blazestore_registered_users') || '[]';
-      const existingList: Array<User & { password?: string }> = JSON.parse(existingStr);
-      const found = existingList.find((u) => u.email.toLowerCase() === emailClean);
-      if (found) {
-        if (providedPw && found.password && found.password !== providedPw) {
-          throw new Error('Incorrect password. Please verify your credentials.');
-        }
-        const { password: _, ...cleanUser } = found;
-        localStorage.setItem('blazestore_user', JSON.stringify(cleanUser));
-        return { user: cleanUser, message: 'Signed in successfully!' };
-      }
-    } catch (err: any) {
-      if (err.message && err.message.includes('Incorrect password')) throw err;
-    }
-
-    throw new Error(
-      `No account found with email "${emailClean}". Only registered users can log in. Please sign up.`
-    );
+    throw new Error(`Authentication failed. Please verify your credentials and sign in again.`);
   },
 
   async getMe(): Promise<User | null> {

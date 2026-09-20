@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": "18.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --target=node18 --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/vercelHandler.ts --bundle --platform=node --target=node18 --format=esm --packages=external --outfile=api/[...all].js && cp api/[...all].js api/index.js",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --target=node24 --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/vercelHandler.ts --bundle --platform=node --target=node24 --format=esm --packages=external --outfile=api/[...all].js && cp api/[...all].js api/index.js",
     "seed": "tsx scripts/seedAdminAccounts.ts",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
@@ -22,6 +22,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.18.0",
+    "firebase-admin": "^14.4.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",

@@ -22,6 +22,8 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut as firebaseSignOut,
   updateProfile,
   User as FirebaseUser
@@ -677,6 +679,86 @@ export async function signInWithEmail(credentials: {
   } catch {}
 
   return { user: userProfile, message: 'Signed in successfully with Firebase Auth!' };
+}
+
+/**
+ * Sign in a user via Google Authentication provider and retrieve/create their Firestore profile.
+ */
+export async function signInWithGoogle(): Promise<{ user: User; message: string }> {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const credential = await signInWithPopup(auth, provider);
+  const fbUser = credential.user;
+
+  const cleanEmail = (fbUser.email || '').trim().toLowerCase();
+  const { role: defaultRole, roleType: defaultRoleType } = getRoleForEmail(cleanEmail);
+
+  let userProfile: User;
+  const userDocRef = doc(firestore, 'users', fbUser.uid);
+
+  try {
+    const docSnap = await getDoc(userDocRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data() as User;
+      const roleType = data.roleType || defaultRoleType;
+      const role =
+        roleType === 'owner'
+          ? 'Store Owner'
+          : roleType === 'manager'
+          ? 'Store Manager'
+          : data.role || defaultRole;
+
+      userProfile = {
+        ...data,
+        id: fbUser.uid,
+        email: fbUser.email || cleanEmail,
+        avatar: fbUser.photoURL || data.avatar,
+        role,
+        roleType,
+      };
+
+      await setDoc(userDocRef, {
+        avatar: fbUser.photoURL || userProfile.avatar,
+        updatedAt: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    } else {
+      userProfile = {
+        id: fbUser.uid,
+        name: fbUser.displayName || cleanEmail.split('@')[0] || 'BlazeStore Member',
+        email: fbUser.email || cleanEmail,
+        avatar: fbUser.photoURL || '',
+        phone: fbUser.phoneNumber || '',
+        role: defaultRole,
+        roleType: defaultRoleType,
+        createdAt: new Date().toISOString(),
+        totalOrders: 0,
+        totalSpent: 0,
+      };
+      await setDoc(userDocRef, {
+        ...userProfile,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
+    }
+  } catch {
+    userProfile = {
+      id: fbUser.uid,
+      name: fbUser.displayName || cleanEmail.split('@')[0] || 'BlazeStore Member',
+      email: fbUser.email || cleanEmail,
+      avatar: fbUser.photoURL || '',
+      phone: fbUser.phoneNumber || '',
+      role: defaultRole,
+      roleType: defaultRoleType,
+      createdAt: new Date().toISOString(),
+      totalOrders: 0,
+      totalSpent: 0,
+    };
+  }
+
+  try {
+    localStorage.setItem('blazestore_user', JSON.stringify(userProfile));
+  } catch {}
+
+  return { user: userProfile, message: 'Signed in successfully with Google!' };
 }
 
 /**

@@ -31,9 +31,9 @@ export const FirestoreStatusBanner: React.FC<FirestoreStatusBannerProps> = ({
     users: number;
     refunds: number;
   }>({
-    products: 12,
+    products: 0,
     orders: 0,
-    users: 2,
+    users: 0,
     refunds: 0,
   });
 

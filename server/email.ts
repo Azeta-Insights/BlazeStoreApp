@@ -64,18 +64,44 @@ function getEmailTransporter() {
       user,
       pass,
     },
+    name: 'blazestore.ng',
   });
 }
 
 function getSenderFromAddress(user: string): string {
-  if (process.env.SMTP_FROM && process.env.SMTP_FROM.trim()) {
-    return process.env.SMTP_FROM.trim();
+  const activeUser = (user || runtimeSmtpUser || process.env.SMTP_USER || '').trim();
+  const rawFrom = (runtimeSmtpFrom || process.env.SMTP_FROM || '').trim();
+
+  if (rawFrom) {
+    // If rawFrom contains a URL (like https://...), strip out the URL so only clean name remains
+    if (rawFrom.includes('http://') || rawFrom.includes('https://') || rawFrom.includes('.vercel.app')) {
+      const cleanName = rawFrom
+        .replace(/<https?:\/\/[^>]+>/gi, '')
+        .replace(/https?:\/\/\S+/gi, '')
+        .replace(/[<>]/g, '')
+        .trim() || 'BlazeStore NG';
+      return `"${cleanName}" <${activeUser}>`;
+    }
+
+    // If rawFrom has a valid email inside <...>
+    const emailMatch = rawFrom.match(/<([^>]+@[^>]+)>/);
+    if (emailMatch && emailMatch[1]) {
+      const namePart = rawFrom.replace(/<[^>]+>/, '').trim() || 'BlazeStore NG';
+      const cleanName = namePart.replace(/^["']|["']$/g, '').trim();
+      return `"${cleanName}" <${emailMatch[1]}>`;
+    }
+
+    // If rawFrom is just a display name without email address
+    if (!rawFrom.includes('@')) {
+      const cleanName = rawFrom.replace(/^["']|["']$/g, '').trim();
+      return `"${cleanName || 'BlazeStore NG'}" <${activeUser}>`;
+    }
+
+    return rawFrom;
   }
-  if (runtimeSmtpFrom && runtimeSmtpFrom.trim()) {
-    return runtimeSmtpFrom.trim();
-  }
-  if (user && user.toLowerCase().endsWith('@gmail.com')) {
-    return `"BlazeStore NG" <${user}>`;
+
+  if (activeUser && activeUser.includes('@')) {
+    return `"BlazeStore NG" <${activeUser}>`;
   }
   return `"BlazeStore NG" <orders@blazestore.ng>`;
 }

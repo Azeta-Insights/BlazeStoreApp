@@ -21,5 +21,17 @@
       "createdAt": "2026-09-20T09:00:53.216Z",
       "updatedAt": "2026-09-20T09:00:53.216Z"
     }
+  ],
+  "settings": [
+    {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "user": "blessing.waydiva@gmail.com",
+      "pass": "pmfmflsgfdyxfwet",
+      "from": "BlazeStore NG <blessing.waydiva@gmail.com>",
+      "secure": false,
+      "updatedAt": "2026-09-20T09:37:50.440Z",
+      "id": "smtp"
+    }
   ]
 }

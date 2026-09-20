@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { Order } from '../src/types';
+import { updateDbDocument, getDbDocument } from './db';
 
 interface EmailSendResult {
   success: boolean;
@@ -15,7 +16,7 @@ let runtimeSmtpPass: string = 'pmfmflsgfdyxfwet';
 let runtimeSmtpFrom: string = 'BlazeStore NG <blessing.waydiva@gmail.com>';
 let runtimeSmtpSecure: boolean = false;
 
-export function setRuntimeEmailConfig(config: {
+export async function setRuntimeEmailConfig(config: {
   host?: string;
   port?: number;
   user?: string;
@@ -29,7 +30,51 @@ export function setRuntimeEmailConfig(config: {
   if (config.pass !== undefined) runtimeSmtpPass = config.pass.trim();
   if (config.from !== undefined) runtimeSmtpFrom = config.from.trim();
   if (config.secure !== undefined) runtimeSmtpSecure = Boolean(config.secure);
+
+  try {
+    await updateDbDocument('settings', 'smtp', {
+      host: runtimeSmtpHost,
+      port: runtimeSmtpPort,
+      user: runtimeSmtpUser,
+      pass: runtimeSmtpPass,
+      from: runtimeSmtpFrom,
+      secure: runtimeSmtpSecure,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('[SMTP Settings] Could not persist SMTP settings to database:', err);
+  }
 }
+
+/**
+ * Load persisted SMTP settings from Firestore settings collection on startup
+ */
+export async function loadSmtpConfigFromDb(): Promise<void> {
+  try {
+    const saved = await getDbDocument<{
+      host?: string;
+      port?: number;
+      user?: string;
+      pass?: string;
+      from?: string;
+      secure?: boolean;
+    }>('settings', 'smtp');
+
+    if (saved) {
+      if (saved.host) runtimeSmtpHost = saved.host;
+      if (saved.port) runtimeSmtpPort = Number(saved.port) || 587;
+      if (saved.user) runtimeSmtpUser = saved.user;
+      if (saved.pass) runtimeSmtpPass = saved.pass;
+      if (saved.from) runtimeSmtpFrom = saved.from;
+      if (saved.secure !== undefined) runtimeSmtpSecure = Boolean(saved.secure);
+    }
+  } catch (err) {
+    console.warn('[SMTP Settings] Could not load SMTP settings from database:', err);
+  }
+}
+
+// Automatically load on initialization
+loadSmtpConfigFromDb().catch(() => {});
 
 /**
  * Get nodemailer transport configured via environment variables or runtime settings

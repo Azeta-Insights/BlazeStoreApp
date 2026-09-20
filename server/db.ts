@@ -976,6 +976,10 @@ export async function queryDbCollection(colName: string, opts?: any): Promise<an
   return { documents: docs, count: docs.length };
 }
 
+export async function getDbDocument<T = any>(colName: string, id: string): Promise<T | null> {
+  return fetchDocument<T>(colName, id);
+}
+
 export async function insertDbDocument(colName: string, docData: any): Promise<any> {
   const id = docData.id || docData._id || `doc-${Date.now()}`;
   await saveDocument(colName, id, { ...docData, id });

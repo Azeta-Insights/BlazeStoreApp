@@ -248,7 +248,7 @@ export function createApp() {
   apiRouter.post('/email/config', async (req, res) => {
     try {
       const { host, port, user, pass, from, secure } = req.body || {};
-      setRuntimeEmailConfig({ host, port, user, pass, from, secure });
+      await setRuntimeEmailConfig({ host, port, user, pass, from, secure });
       const status = getEmailStatus();
       res.json({ success: true, ...status });
     } catch (err: any) {

@@ -9,12 +9,12 @@ interface EmailSendResult {
   simulated?: boolean;
 }
 
-let runtimeSmtpHost: string = 'smtp.gmail.com';
-let runtimeSmtpPort: number = 587;
-let runtimeSmtpUser: string = 'blessing.waydiva@gmail.com';
-let runtimeSmtpPass: string = 'pmfmflsgfdyxfwet';
-let runtimeSmtpFrom: string = 'BlazeStore NG <blessing.waydiva@gmail.com>';
-let runtimeSmtpSecure: boolean = false;
+let runtimeSmtpHost: string = process.env.SMTP_HOST || 'smtp.gmail.com';
+let runtimeSmtpPort: number = Number(process.env.SMTP_PORT) || 587;
+let runtimeSmtpUser: string = process.env.SMTP_USER || '';
+let runtimeSmtpPass: string = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
+let runtimeSmtpFrom: string = process.env.SMTP_FROM || 'BlazeStore NG <noreply@blazestore.ng>';
+let runtimeSmtpSecure: boolean = process.env.SMTP_SECURE === 'true';
 
 export async function setRuntimeEmailConfig(config: {
   host?: string;

@@ -38,10 +38,10 @@ interface PaystackVerifyResult {
 }
 
 let runtimePaystackSecretKey: string = '';
-let runtimePaystackPublicKey: string = 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0';
+let runtimePaystackPublicKey: string = process.env.PAYSTACK_PUBLIC_KEY || process.env.VITE_PAYSTACK_PUBLIC_KEY || '';
 let runtimePreferredMode: 'live' | 'test' = 'live';
 
-export const DEFAULT_PAYSTACK_PUBLIC_KEY = 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0';
+export const DEFAULT_PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || process.env.VITE_PAYSTACK_PUBLIC_KEY || '';
 
 export function isPaystackConfigured(): boolean {
   const key = getPaystackSecretKey();

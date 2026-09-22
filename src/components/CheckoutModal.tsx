@@ -526,89 +526,88 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       if (initRes.authorizationUrl) {
         setFallbackPaymentUrl(initRes.authorizationUrl);
-      }
+        const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
-      // 2. Launch Official Paystack Inline Popup or Hosted Page
-      const sdkReady = await ensurePaystackSDK();
-      console.log('Paystack SDK ready status:', { sdkReady, hasWindowPop: Boolean(window.PaystackPop) });
-
-      if (window.PaystackPop && sdkReady) {
-        setPaymentStatusText('Opening secure payment window...');
-
-        console.log('=== [Calling window.PaystackPop.setup] ===', {
-          key: effectivePublicKey,
-          email: formData.email,
-          amount: Math.round(total * 100),
-          ref: initRes.reference || reference,
-        });
-
-        try {
-          const handler = window.PaystackPop.setup({
-            key: effectivePublicKey,
-            email: formData.email || 'customer@blazestore.ng',
-            amount: Math.round(total * 100), // amount in kobo
-            currency: 'NGN',
-            ref: initRes.reference || reference,
-            channels: selectedChannels,
-            metadata: {
-              custom_fields: [
-                { display_name: 'Customer Name', variable_name: 'customer_name', value: formData.name },
-                { display_name: 'Phone', variable_name: 'customer_phone', value: formData.phone },
-                { display_name: 'Delivery Address', variable_name: 'delivery_address', value: `${formData.address}, ${formData.city}, ${formData.state}` },
-              ],
-            },
-            callback: async (response: { reference: string; status?: string }) => {
-              console.log('Paystack payment callback received:', response);
-              setStep('processing');
-              setPaymentStatusText('Verifying transaction...');
-              try {
-                const verifyRes = await api.verifyPaystack(response.reference);
-                if (verifyRes && verifyRes.paid) {
-                  await finalizeOrder(response.reference, 'Paystack', 'paid', verifyRes);
-                } else {
-                  setStep('form');
-                  const errMsg = verifyRes?.gatewayResponse || verifyRes?.error || 'Transaction was not completed.';
-                  setCheckoutError(`Payment unsuccessful: ${errMsg}`);
-                  if (onShowToast) onShowToast(`Payment unsuccessful: ${errMsg}`);
-                }
-              } catch (err: any) {
-                console.warn('Verify error:', err);
-                setStep('form');
-                setCheckoutError('Payment verification failed. Please try again.');
-                if (onShowToast) onShowToast('Payment verification failed. Please try again.');
-              } finally {
-                setIsSubmitting(false);
-              }
-            },
-            onClose: () => {
-              console.log('Paystack popup closed by user.');
-              setIsSubmitting(false);
-              setStep('form');
-            },
-          });
-
-          handler.openIframe();
+        // On standalone web app (e.g., Vercel deployment), redirect top-level location directly
+        if (!isInIframe) {
+          console.log('[Paystack Checkout] Direct top-level redirect to:', initRes.authorizationUrl);
+          setPaymentStatusText('Redirecting to Paystack secure payment page...');
+          window.location.href = initRes.authorizationUrl;
           return;
-        } catch (popupErr: any) {
-          console.warn('Paystack inline iframe launch error, falling back to hosted checkout:', popupErr);
-          if (initRes.authorizationUrl) {
-            setFallbackPaymentUrl(initRes.authorizationUrl);
-            window.open(initRes.authorizationUrl, '_blank', 'noopener,noreferrer');
-            setPaymentStatusText('Payment checkout opened in a new tab. After payment, click below to confirm.');
-            setIsSubmitting(false);
+        }
+
+        // Inside iframe (e.g., AI Studio preview), attempt inline PaystackPop or popup tab
+        const sdkReady = await ensurePaystackSDK();
+        if (window.PaystackPop && sdkReady && effectivePublicKey) {
+          try {
+            const handler = window.PaystackPop.setup({
+              key: effectivePublicKey,
+              email: formData.email || 'customer@blazestore.ng',
+              amount: Math.round(total * 100),
+              currency: 'NGN',
+              ref: initRes.reference || reference,
+              channels: selectedChannels,
+              metadata: {
+                custom_fields: [
+                  { display_name: 'Customer Name', variable_name: 'customer_name', value: formData.name },
+                  { display_name: 'Phone', variable_name: 'customer_phone', value: formData.phone },
+                  { display_name: 'Delivery Address', variable_name: 'delivery_address', value: `${formData.address}, ${formData.city}, ${formData.state}` },
+                ],
+              },
+              callback: async (response: { reference: string; status?: string }) => {
+                console.log('Paystack payment callback received:', response);
+                setStep('processing');
+                setPaymentStatusText('Verifying transaction...');
+                try {
+                  const verifyRes = await api.verifyPaystack(response.reference);
+                  if (verifyRes && verifyRes.paid) {
+                    await finalizeOrder(response.reference, 'Paystack', 'paid', verifyRes);
+                  } else {
+                    setStep('form');
+                    const errMsg = verifyRes?.gatewayResponse || verifyRes?.error || 'Transaction was not completed.';
+                    setCheckoutError(`Payment unsuccessful: ${errMsg}`);
+                    if (onShowToast) onShowToast(`Payment unsuccessful: ${errMsg}`);
+                  }
+                } catch (err: any) {
+                  console.warn('Verify error:', err);
+                  setStep('form');
+                  setCheckoutError('Payment verification failed. Please try again.');
+                  if (onShowToast) onShowToast('Payment verification failed. Please try again.');
+                } finally {
+                  setIsSubmitting(false);
+                }
+              },
+              onClose: () => {
+                console.log('Paystack popup closed by user.');
+                setIsSubmitting(false);
+                setStep('form');
+              },
+            });
+            handler.openIframe();
             return;
+          } catch (popupErr: any) {
+            console.warn('Paystack inline iframe error, redirecting top window:', popupErr);
           }
         }
-      }
 
-      // Fallback: If inline popup is not available or blocked in container, open in new tab (avoiding iframe X-Frame-Options break)
-      if (initRes.authorizationUrl) {
-        console.log('Opening Paystack checkout URL in new tab:', initRes.authorizationUrl);
-        setFallbackPaymentUrl(initRes.authorizationUrl);
-        window.open(initRes.authorizationUrl, '_blank', 'noopener,noreferrer');
-        setPaymentStatusText('Payment checkout opened in a new tab. After payment, click below to confirm.');
-        setIsSubmitting(false);
-        return;
+        // Fallback: Try opening in new tab or direct location redirect if popup blocked
+        let popup: Window | null = null;
+        try {
+          popup = window.open(initRes.authorizationUrl, '_blank', 'noopener,noreferrer');
+        } catch (e) {
+          console.warn('window.open blocked:', e);
+        }
+
+        if (popup) {
+          setPaymentStatusText('Payment checkout opened in a new tab. After payment, click below to confirm.');
+          setIsSubmitting(false);
+          return;
+        } else {
+          console.log('[Paystack Checkout] Popup blocked in iframe. Performing top-level redirect...');
+          setPaymentStatusText('Redirecting to Paystack secure payment page...');
+          window.location.href = initRes.authorizationUrl;
+          return;
+        }
       }
 
       // If running with built-in instant authorization (e.g. initial setup)

@@ -2203,7 +2203,7 @@ export const api = {
       isLive,
       mode: isLive ? 'live' : 'test',
       preferredMode: isLive ? 'live' : 'test',
-      publicKey: params.publicKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('blazestore_paystack_public_key') : null) || 'pk_live_62a83832cf627e85d9451840a50e74980ca562e0',
+      publicKey: params.publicKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('blazestore_paystack_public_key') : null) || (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''),
       hasSecretKey: Boolean(params.secretKey),
       secretKeyMasked: params.secretKey
         ? `${params.secretKey.substring(0, 7)}...${params.secretKey.slice(-4)}`

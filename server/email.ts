@@ -312,36 +312,136 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
     </html>
   `;
 
+  return dispatchOutboundEmail({
+    to: recipientEmail,
+    subject: `Order Confirmed #${order.orderId || order.id} - BlazeStore`,
+    html: htmlContent,
+    from: fromAddress,
+  });
+}
+
+async function sendViaBrevoApi(apiKey: string, from: string, to: string, subject: string, html: string): Promise<string> {
+  let senderEmail = 'orders@blazestore.ng';
+  let senderName = 'BlazeStore NG';
+  const match = from.match(/^(.*?)\s*<([^>]+)>$/);
+  if (match) {
+    senderName = match[1].trim() || 'BlazeStore NG';
+    senderEmail = match[2].trim();
+  } else if (from.includes('@')) {
+    senderEmail = from.trim();
+  }
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `Brevo API HTTP ${res.status}`);
+  }
+  return data?.messageId || data?.messageIds?.[0] || 'brevo-ok';
+}
+
+async function sendViaResendApi(apiKey: string, from: string, to: string, subject: string, html: string): Promise<string> {
+  let fromFormatted = from;
+  if (!from.includes('<') && from.includes('@')) {
+    fromFormatted = `BlazeStore NG <${from}>`;
+  } else if (!from) {
+    fromFormatted = 'BlazeStore NG <onboarding@resend.dev>';
+  }
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: fromFormatted,
+      to: [to],
+      subject,
+      html,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.message || data?.name || `Resend API HTTP ${res.status}`);
+  }
+  return data?.id || 'resend-ok';
+}
+
+async function dispatchOutboundEmail(params: {
+  to: string;
+  subject: string;
+  html: string;
+  from?: string;
+}): Promise<EmailSendResult> {
+  await loadSmtpConfigFromDb();
+
+  const host = (runtimeSmtpHost || process.env.SMTP_HOST || '').trim();
+  const user = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
+  let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || process.env.RESEND_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const fromAddress = params.from || getSenderFromAddress(user);
+
+  // 1. Brevo HTTP API
+  if (pass.startsWith('xkeysib-') || host.includes('brevo') || process.env.BREVO_API_KEY) {
+    const apiKey = pass.startsWith('xkeysib-') ? pass : (process.env.BREVO_API_KEY || pass);
+    if (apiKey) {
+      try {
+        const messageId = await sendViaBrevoApi(apiKey, fromAddress, params.to, params.subject, params.html);
+        return { success: true, messageId, simulated: false };
+      } catch (err: any) {
+        console.warn('[Email Dispatch] Brevo API failed:', err?.message || err);
+        return { success: false, error: `Brevo API error: ${err?.message || err}` };
+      }
+    }
+  }
+
+  // 2. Resend HTTP API
+  if (pass.startsWith('re_') || host.includes('resend') || process.env.RESEND_API_KEY) {
+    const apiKey = pass.startsWith('re_') ? pass : (process.env.RESEND_API_KEY || pass);
+    if (apiKey) {
+      try {
+        const messageId = await sendViaResendApi(apiKey, fromAddress, params.to, params.subject, params.html);
+        return { success: true, messageId, simulated: false };
+      } catch (err: any) {
+        console.warn('[Email Dispatch] Resend API failed:', err?.message || err);
+        return { success: false, error: `Resend API error: ${err?.message || err}` };
+      }
+    }
+  }
+
+  // 3. Nodemailer SMTP
+  const transporter = await getEmailTransporter();
   if (!transporter) {
-    console.log(`[Email Dispatch Notice] SMTP not configured in environment variables (SMTP_HOST, SMTP_USER, SMTP_PASS). Order confirmation for #${order.orderId || order.id} was logged and saved in Firestore notifications feed.`);
-    return {
-      success: true,
-      simulated: true,
-      messageId: `sim-${Date.now()}`,
-    };
+    console.log(`[Email Dispatch Notice] SMTP not configured. Simulated dispatch logged.`);
+    return { success: true, simulated: true, messageId: `sim-${Date.now()}` };
   }
 
   try {
     const info = await transporter.sendMail({
       from: fromAddress,
-      to: recipientEmail,
-      subject: `Order Confirmed #${order.orderId || order.id} - BlazeStore`,
-      html: htmlContent,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
     });
-
-    console.log(`[Email Service] Order confirmation email sent to ${recipientEmail} for order #${order.orderId || order.id}. MessageId: ${info.messageId}`);
-    return {
-      success: true,
-      messageId: info.messageId,
-      simulated: false,
-    };
+    return { success: true, messageId: info.messageId, simulated: false };
   } catch (err: any) {
-    const friendlyError = formatSmtpError(err);
-    console.warn(`[Email Dispatch Notice] Could not deliver email to ${recipientEmail}:`, friendlyError);
-    return {
-      success: false,
-      error: friendlyError,
-    };
+    const friendly = formatSmtpError(err);
+    console.warn(`[Email Dispatch Notice] Could not deliver email to ${params.to}:`, friendly);
+    return { success: false, error: friendly };
   }
 }
 
@@ -350,11 +450,11 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
  */
 function formatSmtpError(err: any): string {
   const msg = err?.message || String(err);
-  if (msg.includes('535 5.7.139') || msg.includes('SmtpClientAuthentication is disabled')) {
-    return 'Microsoft 365 / Outlook error (535 5.7.139): Authenticated SMTP is disabled for this mailbox by Microsoft policy. Please enable SMTP AUTH in Microsoft 365 Admin Center, or use Gmail SMTP with a 16-character App Password (smtp.gmail.com:587).';
+  if (msg.includes('535') || msg.includes('Username and Password not accepted') || msg.includes('BadCredentials')) {
+    return 'Gmail Auth Error (535): Google blocks raw Gmail SMTP logins from cloud serverless IPs (Vercel). For reliable delivery on Vercel, please use a Brevo API key (xkeysib-...) or Resend API key (re_...) in Settings.';
   }
-  if (msg.includes('535-5.7.8') || msg.includes('Username and Password not accepted') || msg.includes('BadCredentials') || msg.includes('535 5.7.8')) {
-    return 'Authentication failed: Invalid email or password. If using Gmail, please create and use a 16-character Google App Password (not your personal account password).';
+  if (msg.includes('535 5.7.139') || msg.includes('SmtpClientAuthentication is disabled')) {
+    return 'Microsoft 365 / Outlook error (535 5.7.139): Authenticated SMTP is disabled for this mailbox by Microsoft policy.';
   }
   if (msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
     return `Connection to SMTP host failed (${err.code || 'Network Error'}). Please check your SMTP Host address and Port number.`;
@@ -366,12 +466,12 @@ export async function getEmailStatus() {
   await loadSmtpConfigFromDb();
   const host = runtimeSmtpHost || process.env.SMTP_HOST;
   const user = runtimeSmtpUser || process.env.SMTP_USER;
-  const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD);
-  const isConfigured = Boolean(host && user && hasPass);
+  const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
+  const isConfigured = Boolean(host && user && hasPass) || Boolean(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
 
   return {
     configured: isConfigured,
-    host: host || 'Not set',
+    host: host || (process.env.BREVO_API_KEY ? 'api.brevo.com' : process.env.RESEND_API_KEY ? 'api.resend.com' : 'Not set'),
     port: runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587,
     secure: runtimeSmtpSecure || process.env.SMTP_SECURE === 'true',
     user: user ? `${user.substring(0, 4)}***@${user.split('@')[1] || ''}` : 'Not set',
@@ -383,41 +483,21 @@ export async function getEmailStatus() {
  * Sends a test email to verify credentials
  */
 export async function sendTestEmail(targetEmail: string): Promise<EmailSendResult> {
-  const transporter = await getEmailTransporter();
-  if (!transporter) {
-    return {
-      success: false,
-      error: 'SMTP credentials (SMTP_HOST, SMTP_USER, SMTP_PASS) are not configured in environment variables.',
-    };
-  }
-
   const fromAddress = getSenderFromAddress((runtimeSmtpUser || process.env.SMTP_USER || '').trim());
-  try {
-    const info = await transporter.sendMail({
-      from: fromAddress,
-      to: targetEmail,
-      subject: '✅ BlazeStore Outbound Email Test Successful',
-      html: `
-        <div style="font-family: sans-serif; padding: 24px; color: #1E293B;">
-          <h2 style="color: #4F46E5;">Email Delivery Connected! 🎉</h2>
-          <p>This is a verification test from your <strong>BlazeStore Nigeria</strong> store platform.</p>
-          <p>Your SMTP email configuration is active and ready to deliver real-time order receipts, customer invoices, and delivery updates.</p>
-          <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;" />
-          <p style="font-size: 12px; color: #94A3B8;">Timestamp: ${new Date().toISOString()}</p>
-        </div>
-      `,
-    });
+  const html = `
+    <div style="font-family: sans-serif; padding: 24px; color: #1E293B;">
+      <h2 style="color: #4F46E5;">Email Delivery Connected! 🎉</h2>
+      <p>This is a verification test from your <strong>BlazeStore Nigeria</strong> store platform.</p>
+      <p>Your email configuration is active and ready to deliver real-time order receipts, customer invoices, and delivery updates.</p>
+      <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;" />
+      <p style="font-size: 12px; color: #94A3B8;">Timestamp: ${new Date().toISOString()}</p>
+    </div>
+  `;
 
-    return {
-      success: true,
-      messageId: info.messageId,
-      simulated: false,
-    };
-  } catch (err: any) {
-    const friendly = formatSmtpError(err);
-    return {
-      success: false,
-      error: friendly,
-    };
-  }
+  return dispatchOutboundEmail({
+    to: targetEmail,
+    subject: '✅ BlazeStore Outbound Email Test Successful',
+    html,
+    from: fromAddress,
+  });
 }

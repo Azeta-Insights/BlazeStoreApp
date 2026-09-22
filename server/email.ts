@@ -9,11 +9,11 @@ interface EmailSendResult {
   simulated?: boolean;
 }
 
-let runtimeSmtpHost: string = process.env.SMTP_HOST || 'smtp.gmail.com';
+let runtimeSmtpHost: string = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
 let runtimeSmtpPort: number = Number(process.env.SMTP_PORT) || 587;
 let runtimeSmtpUser: string = process.env.SMTP_USER || '';
-let runtimeSmtpPass: string = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
-let runtimeSmtpFrom: string = process.env.SMTP_FROM || 'BlazeStore NG <noreply@blazestore.ng>';
+let runtimeSmtpPass: string = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || '';
+let runtimeSmtpFrom: string = process.env.SMTP_FROM || 'Blaze World <blazeworldd@outlook.com>';
 let runtimeSmtpSecure: boolean = process.env.SMTP_SECURE === 'true';
 
 export async function setRuntimeEmailConfig(config: {
@@ -321,11 +321,11 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
 }
 
 async function sendViaBrevoApi(apiKey: string, from: string, to: string, subject: string, html: string): Promise<string> {
-  let senderEmail = 'orders@blazestore.ng';
-  let senderName = 'BlazeStore NG';
+  let senderEmail = 'blazeworldd@outlook.com';
+  let senderName = 'Blaze World';
   const match = from.match(/^(.*?)\s*<([^>]+)>$/);
   if (match) {
-    senderName = match[1].trim() || 'BlazeStore NG';
+    senderName = match[1].trim() || 'Blaze World';
     senderEmail = match[2].trim();
   } else if (from.includes('@')) {
     senderEmail = from.trim();
@@ -353,35 +353,6 @@ async function sendViaBrevoApi(apiKey: string, from: string, to: string, subject
   return data?.messageId || data?.messageIds?.[0] || 'brevo-ok';
 }
 
-async function sendViaResendApi(apiKey: string, from: string, to: string, subject: string, html: string): Promise<string> {
-  let fromFormatted = from;
-  if (!from.includes('<') && from.includes('@')) {
-    fromFormatted = `BlazeStore NG <${from}>`;
-  } else if (!from) {
-    fromFormatted = 'BlazeStore NG <onboarding@resend.dev>';
-  }
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: fromFormatted,
-      to: [to],
-      subject,
-      html,
-    }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.message || data?.name || `Resend API HTTP ${res.status}`);
-  }
-  return data?.id || 'resend-ok';
-}
-
 async function dispatchOutboundEmail(params: {
   to: string;
   subject: string;
@@ -390,44 +361,25 @@ async function dispatchOutboundEmail(params: {
 }): Promise<EmailSendResult> {
   await loadSmtpConfigFromDb();
 
-  const host = (runtimeSmtpHost || process.env.SMTP_HOST || '').trim();
-  const user = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
-  let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || process.env.RESEND_API_KEY || '').trim().replace(/^["']|["']$/g, '');
-  const fromAddress = params.from || getSenderFromAddress(user);
+  let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const fromAddress = params.from || runtimeSmtpFrom || 'Blaze World <blazeworldd@outlook.com>';
 
-  // 1. Brevo HTTP API
-  if (pass.startsWith('xkeysib-') || host.includes('brevo') || process.env.BREVO_API_KEY) {
-    const apiKey = pass.startsWith('xkeysib-') ? pass : (process.env.BREVO_API_KEY || pass);
-    if (apiKey) {
-      try {
-        const messageId = await sendViaBrevoApi(apiKey, fromAddress, params.to, params.subject, params.html);
-        return { success: true, messageId, simulated: false };
-      } catch (err: any) {
-        console.warn('[Email Dispatch] Brevo API failed:', err?.message || err);
-        return { success: false, error: `Brevo API error: ${err?.message || err}` };
-      }
+  // 1. Primary Brevo HTTP API
+  const apiKey = pass.startsWith('xkeysib-') ? pass : (process.env.BREVO_API_KEY || '');
+  if (apiKey && apiKey.startsWith('xkeysib-')) {
+    try {
+      const messageId = await sendViaBrevoApi(apiKey, fromAddress, params.to, params.subject, params.html);
+      console.log(`[Email Service - Brevo API] Delivered email to ${params.to}. MessageId: ${messageId}`);
+      return { success: true, messageId, simulated: false };
+    } catch (err: any) {
+      console.warn('[Email Dispatch] Brevo API failed, falling back to Brevo SMTP:', err?.message || err);
     }
   }
 
-  // 2. Resend HTTP API
-  if (pass.startsWith('re_') || host.includes('resend') || process.env.RESEND_API_KEY) {
-    const apiKey = pass.startsWith('re_') ? pass : (process.env.RESEND_API_KEY || pass);
-    if (apiKey) {
-      try {
-        const messageId = await sendViaResendApi(apiKey, fromAddress, params.to, params.subject, params.html);
-        return { success: true, messageId, simulated: false };
-      } catch (err: any) {
-        console.warn('[Email Dispatch] Resend API failed:', err?.message || err);
-        return { success: false, error: `Resend API error: ${err?.message || err}` };
-      }
-    }
-  }
-
-  // 3. Nodemailer SMTP
+  // 2. Secondary Brevo Nodemailer SMTP
   const transporter = await getEmailTransporter();
   if (!transporter) {
-    console.log(`[Email Dispatch Notice] SMTP not configured. Simulated dispatch logged.`);
-    return { success: true, simulated: true, messageId: `sim-${Date.now()}` };
+    return { success: false, error: 'Brevo email service credentials unavailable.' };
   }
 
   try {
@@ -440,7 +392,7 @@ async function dispatchOutboundEmail(params: {
     return { success: true, messageId: info.messageId, simulated: false };
   } catch (err: any) {
     const friendly = formatSmtpError(err);
-    console.warn(`[Email Dispatch Notice] Could not deliver email to ${params.to}:`, friendly);
+    console.warn(`[Email Dispatch Notice] Brevo SMTP delivery failed to ${params.to}:`, friendly);
     return { success: false, error: friendly };
   }
 }

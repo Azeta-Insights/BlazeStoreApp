@@ -109,11 +109,11 @@ export const AdminDatabaseHub: React.FC<AdminDatabaseHubProps> = ({
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // SMTP Configuration Form State
-  const [smtpHostInput, setSmtpHostInput] = useState('');
+  const [smtpHostInput, setSmtpHostInput] = useState('smtp-relay.brevo.com');
   const [smtpPortInput, setSmtpPortInput] = useState('587');
   const [smtpUserInput, setSmtpUserInput] = useState('');
   const [smtpPassInput, setSmtpPassInput] = useState('');
-  const [smtpFromInput, setSmtpFromInput] = useState('');
+  const [smtpFromInput, setSmtpFromInput] = useState('Blaze World <blazeworldd@outlook.com>');
   const [smtpSecureInput, setSmtpSecureInput] = useState(false);
   const [isUpdatingSmtp, setIsUpdatingSmtp] = useState(false);
   const [showSmtpConfigForm, setShowSmtpConfigForm] = useState(false);
@@ -197,28 +197,11 @@ service cloud.firestore {
     }
   };
 
-  const applySmtpPreset = (preset: 'gmail' | 'brevo' | 'resend' | 'outlook') => {
-    if (preset === 'gmail') {
-      setSmtpHostInput('smtp.gmail.com');
-      setSmtpPortInput('587');
-      setSmtpSecureInput(false);
-      setSmtpFromInput('BlazeStore Orders <orders@blazestore.ng>');
-    } else if (preset === 'brevo') {
-      setSmtpHostInput('smtp-relay.brevo.com');
-      setSmtpPortInput('587');
-      setSmtpSecureInput(false);
-      setSmtpFromInput('BlazeStore <orders@blazestore.ng>');
-    } else if (preset === 'resend') {
-      setSmtpHostInput('smtp.resend.com');
-      setSmtpPortInput('465');
-      setSmtpSecureInput(true);
-      setSmtpUserInput('resend');
-      setSmtpFromInput('onboarding@resend.dev');
-    } else if (preset === 'outlook') {
-      setSmtpHostInput('smtp.office365.com');
-      setSmtpPortInput('587');
-      setSmtpSecureInput(false);
-    }
+  const applySmtpPreset = () => {
+    setSmtpHostInput('smtp-relay.brevo.com');
+    setSmtpPortInput('587');
+    setSmtpFromInput('Blaze World <blazeworldd@outlook.com>');
+    setSmtpSecureInput(false);
   };
 
   const LIVE_WEBHOOK_URL = 'https://blaze-store-chi.vercel.app/api/paystack/webhook';
@@ -1462,53 +1445,38 @@ service cloud.firestore {
               </button>
             </div>
 
-            {/* SMTP Diagnostics Notice for Outlook/Office365 */}
-            <div className="rounded-xl p-3 bg-amber-500/10 border border-amber-500/25 text-xs text-amber-800 dark:text-amber-200 space-y-1">
-              <div className="flex items-center gap-2 font-bold text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                <span>Email Provider Notice (Error 535 5.7.139)</span>
+            {/* Brevo Outbound Email Active Banner */}
+            <div className="rounded-xl p-3 bg-blue-500/10 border border-blue-500/25 text-xs text-blue-800 dark:text-blue-200 space-y-1">
+              <div className="flex items-center gap-2 font-bold text-blue-700 dark:text-blue-300">
+                <Mail className="h-4 w-4 shrink-0" />
+                <span>Brevo Transactional Email Engine Connected</span>
               </div>
-              <p className="text-[11px] leading-relaxed text-amber-900/90 dark:text-amber-200/90">
-                If using Outlook/Hotmail, Microsoft disables basic SMTP passwords by default. For reliable email delivery, we recommend using <strong>Gmail SMTP</strong> with a 16-character Google App Password (Host: <code>smtp.gmail.com</code>, Port: <code>587</code>) or a transactional service like <strong>Brevo</strong> or <strong>Resend</strong>.
+              <p className="text-[11px] leading-relaxed text-blue-900/90 dark:text-blue-200/90">
+                Outbound store notifications are powered by <strong>Brevo API & SMTP</strong> (<code>smtp-relay.brevo.com</code>). Delivering instant order receipts to customers from <strong>Blaze World</strong>.
               </p>
             </div>
 
             {showSmtpConfigForm ? (
               <form onSubmit={handleSaveSmtpSettings} className="rounded-xl p-4 bg-[#FAF9FC] dark:bg-[#202024] border border-[#EDEDF2] dark:border-[#27272A] space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Configure Outbound SMTP</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Configure Brevo Outbound Email</span>
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-[#8A8A94] mr-1">Presets:</span>
                     <button
                       type="button"
-                      onClick={() => applySmtpPreset('gmail')}
-                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20"
-                    >
-                      Gmail
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applySmtpPreset('brevo')}
+                      onClick={applySmtpPreset}
                       className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
                     >
-                      Brevo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applySmtpPreset('resend')}
-                      className="px-2 py-0.5 text-[10px] font-bold rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20"
-                    >
-                      Resend
+                      Reset to Brevo Defaults
                     </button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Host</label>
+                    <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Brevo Host</label>
                     <input
                       type="text"
-                      placeholder="smtp.gmail.com"
+                      placeholder="smtp-relay.brevo.com"
                       value={smtpHostInput}
                       onChange={(e) => setSmtpHostInput(e.target.value)}
                       className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
@@ -1527,10 +1495,10 @@ service cloud.firestore {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">User / Email</label>
+                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Brevo Login / Email</label>
                   <input
                     type="text"
-                    placeholder="your-email@gmail.com"
+                    placeholder="ba9da8001@smtp-brevo.com"
                     value={smtpUserInput}
                     onChange={(e) => setSmtpUserInput(e.target.value)}
                     className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
@@ -1538,22 +1506,22 @@ service cloud.firestore {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Password / App Password</label>
+                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Brevo API Key / Master Password</label>
                   <input
                     type="password"
-                    placeholder="••••••••••••••••"
+                    placeholder="xkeysib-..."
                     value={smtpPassInput}
                     onChange={(e) => setSmtpPassInput(e.target.value)}
                     className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B] font-mono"
                   />
-                  <p className="text-[10px] text-[#8A8A94] mt-0.5">For Gmail, generate a 16-character App Password under Google Account &gt; Security &gt; 2-Step Verification.</p>
+                  <p className="text-[10px] text-[#8A8A94] mt-0.5">Use your Brevo v3 API Key (xkeysib-...) or SMTP master key.</p>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Sender Name / Email (From)</label>
+                  <label className="text-[10px] font-bold text-[#8A8A94] uppercase tracking-wider block mb-1">Sender Name & Email (From)</label>
                   <input
                     type="text"
-                    placeholder="BlazeStore Nigeria <orders@blazestore.ng>"
+                    placeholder="Blaze World <blazeworldd@outlook.com>"
                     value={smtpFromInput}
                     onChange={(e) => setSmtpFromInput(e.target.value)}
                     className="w-full rounded-lg px-2.5 py-1.5 text-xs border border-[#EDEDF2] dark:border-[#27272A] bg-white dark:bg-[#18181B]"

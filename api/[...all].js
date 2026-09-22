@@ -1,5 +1,6 @@
 // server/createApp.ts
 import express from "express";
+import path2 from "path";
 import dotenv from "dotenv";
 
 // server/firebase.ts
@@ -198,18 +199,18 @@ async function restDeleteDoc(collectionName, docId) {
 
 // server/email.ts
 import nodemailer from "nodemailer";
-var runtimeSmtpHost = "smtp.gmail.com";
-var runtimeSmtpPort = 587;
-var runtimeSmtpUser = "blessing.waydiva@gmail.com";
-var runtimeSmtpPass = "pmfmflsgfdyxfwet";
-var runtimeSmtpFrom = "BlazeStore NG <blessing.waydiva@gmail.com>";
-var runtimeSmtpSecure = false;
+var runtimeSmtpHost = process.env.SMTP_HOST || "smtp-relay.brevo.com";
+var runtimeSmtpPort = Number(process.env.SMTP_PORT) || 587;
+var runtimeSmtpUser = process.env.SMTP_USER || "";
+var runtimeSmtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || "";
+var runtimeSmtpFrom = process.env.SMTP_FROM || "Blaze World <blazeworldd@outlook.com>";
+var runtimeSmtpSecure = process.env.SMTP_SECURE === "true";
 async function setRuntimeEmailConfig(config) {
-  if (config.host !== void 0) runtimeSmtpHost = config.host.trim();
+  if (typeof config.host === "string") runtimeSmtpHost = config.host.trim();
   if (config.port !== void 0) runtimeSmtpPort = Number(config.port) || 587;
-  if (config.user !== void 0) runtimeSmtpUser = config.user.trim();
-  if (config.pass !== void 0) runtimeSmtpPass = config.pass.trim();
-  if (config.from !== void 0) runtimeSmtpFrom = config.from.trim();
+  if (typeof config.user === "string") runtimeSmtpUser = config.user.trim();
+  if (typeof config.pass === "string") runtimeSmtpPass = config.pass.trim();
+  if (typeof config.from === "string") runtimeSmtpFrom = config.from.trim();
   if (config.secure !== void 0) runtimeSmtpSecure = Boolean(config.secure);
   try {
     await updateDbDocument("settings", "smtp", {
@@ -242,19 +243,38 @@ async function loadSmtpConfigFromDb() {
 }
 loadSmtpConfigFromDb().catch(() => {
 });
-function getEmailTransporter() {
+async function getEmailTransporter() {
+  await loadSmtpConfigFromDb();
   let host = (runtimeSmtpHost || process.env.SMTP_HOST || "").trim();
   const port = runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587;
   const user = (runtimeSmtpUser || process.env.SMTP_USER || "").trim();
   let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "").trim();
+  pass = pass.replace(/^["']|["']$/g, "").trim();
   if (!host && user.toLowerCase().endsWith("@gmail.com")) {
     host = "smtp.gmail.com";
   }
-  if ((host.includes("gmail.com") || host.includes("googlemail.com") || user.toLowerCase().endsWith("@gmail.com")) && pass) {
+  const isGmail = host.includes("gmail.com") || host.includes("googlemail.com") || user.toLowerCase().endsWith("@gmail.com");
+  if (isGmail && pass) {
     pass = pass.replace(/[\s-]+/g, "");
   }
   const secure = runtimeSmtpSecure || process.env.SMTP_SECURE === "true" || port === 465;
-  if (!host || !user || !pass) {
+  if (!user || !pass) {
+    return null;
+  }
+  if (isGmail) {
+    return nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user,
+        pass
+      },
+      connectionTimeout: 1e4,
+      // 10 seconds timeout for Vercel
+      greetingTimeout: 1e4,
+      socketTimeout: 15e3
+    });
+  }
+  if (!host) {
     return null;
   }
   return nodemailer.createTransport({
@@ -265,7 +285,10 @@ function getEmailTransporter() {
       user,
       pass
     },
-    name: "blazestore.ng"
+    name: "blazestore.ng",
+    connectionTimeout: 1e4,
+    greetingTimeout: 1e4,
+    socketTimeout: 15e3
   });
 }
 function getSenderFromAddress(user) {
@@ -306,7 +329,7 @@ async function sendOrderConfirmationEmail(order) {
     console.warn("[Email Service] Skipping email dispatch: Invalid customer email on order", order.id);
     return { success: false, error: "Recipient email is missing or invalid." };
   }
-  const transporter = getEmailTransporter();
+  const transporter = await getEmailTransporter();
   const smtpUser = (runtimeSmtpUser || process.env.SMTP_USER || "").trim();
   const fromAddress = getSenderFromAddress(smtpUser);
   const itemsHtml = (order.items || []).map(
@@ -417,57 +440,97 @@ async function sendOrderConfirmationEmail(order) {
       </body>
     </html>
   `;
+  return dispatchOutboundEmail({
+    to: recipientEmail,
+    subject: `Order Confirmed #${order.orderId || order.id} - BlazeStore`,
+    html: htmlContent,
+    from: fromAddress
+  });
+}
+async function sendViaBrevoApi(apiKey2, from, to, subject, html) {
+  let senderEmail = "blazeworldd@outlook.com";
+  let senderName = "Blaze World";
+  const match = from.match(/^(.*?)\s*<([^>]+)>$/);
+  if (match) {
+    senderName = match[1].trim() || "Blaze World";
+    senderEmail = match[2].trim();
+  } else if (from.includes("@")) {
+    senderEmail = from.trim();
+  }
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "accept": "application/json",
+      "api-key": apiKey2,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || `Brevo API HTTP ${res.status}`);
+  }
+  return data?.messageId || data?.messageIds?.[0] || "brevo-ok";
+}
+async function dispatchOutboundEmail(params) {
+  await loadSmtpConfigFromDb();
+  let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || "").trim().replace(/^["']|["']$/g, "");
+  const fromAddress = params.from || runtimeSmtpFrom || "Blaze World <blazeworldd@outlook.com>";
+  const apiKey2 = pass.startsWith("xkeysib-") ? pass : process.env.BREVO_API_KEY || "";
+  if (apiKey2 && apiKey2.startsWith("xkeysib-")) {
+    try {
+      const messageId = await sendViaBrevoApi(apiKey2, fromAddress, params.to, params.subject, params.html);
+      console.log(`[Email Service - Brevo API] Delivered email to ${params.to}. MessageId: ${messageId}`);
+      return { success: true, messageId, simulated: false };
+    } catch (err) {
+      console.warn("[Email Dispatch] Brevo API failed, falling back to Brevo SMTP:", err?.message || err);
+    }
+  }
+  const transporter = await getEmailTransporter();
   if (!transporter) {
-    console.log(`[Email Dispatch Notice] SMTP not configured in environment variables (SMTP_HOST, SMTP_USER, SMTP_PASS). Order confirmation for #${order.orderId || order.id} was logged and saved in Firestore notifications feed.`);
-    return {
-      success: true,
-      simulated: true,
-      messageId: `sim-${Date.now()}`
-    };
+    return { success: false, error: "Brevo email service credentials unavailable." };
   }
   try {
     const info = await transporter.sendMail({
       from: fromAddress,
-      to: recipientEmail,
-      subject: `Order Confirmed #${order.orderId || order.id} - BlazeStore`,
-      html: htmlContent
+      to: params.to,
+      subject: params.subject,
+      html: params.html
     });
-    console.log(`[Email Service] Order confirmation email sent to ${recipientEmail} for order #${order.orderId || order.id}. MessageId: ${info.messageId}`);
-    return {
-      success: true,
-      messageId: info.messageId,
-      simulated: false
-    };
+    return { success: true, messageId: info.messageId, simulated: false };
   } catch (err) {
-    const friendlyError = formatSmtpError(err);
-    console.warn(`[Email Dispatch Notice] Could not deliver email to ${recipientEmail}:`, friendlyError);
-    return {
-      success: false,
-      error: friendlyError
-    };
+    const friendly = formatSmtpError(err);
+    console.warn(`[Email Dispatch Notice] Brevo SMTP delivery failed to ${params.to}:`, friendly);
+    return { success: false, error: friendly };
   }
 }
 function formatSmtpError(err) {
   const msg = err?.message || String(err);
-  if (msg.includes("535 5.7.139") || msg.includes("SmtpClientAuthentication is disabled")) {
-    return "Microsoft 365 / Outlook error (535 5.7.139): Authenticated SMTP is disabled for this mailbox by Microsoft policy. Please enable SMTP AUTH in Microsoft 365 Admin Center, or use Gmail SMTP with a 16-character App Password (smtp.gmail.com:587).";
+  if (msg.includes("535") || msg.includes("Username and Password not accepted") || msg.includes("BadCredentials")) {
+    return "Gmail Auth Error (535): Google blocks raw Gmail SMTP logins from cloud serverless IPs (Vercel). For reliable delivery on Vercel, please use a Brevo API key (xkeysib-...) or Resend API key (re_...) in Settings.";
   }
-  if (msg.includes("535-5.7.8") || msg.includes("Username and Password not accepted") || msg.includes("BadCredentials") || msg.includes("535 5.7.8")) {
-    return "Authentication failed: Invalid email or password. If using Gmail, please create and use a 16-character Google App Password (not your personal account password).";
+  if (msg.includes("535 5.7.139") || msg.includes("SmtpClientAuthentication is disabled")) {
+    return "Microsoft 365 / Outlook error (535 5.7.139): Authenticated SMTP is disabled for this mailbox by Microsoft policy.";
   }
   if (msg.includes("ETIMEDOUT") || msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
     return `Connection to SMTP host failed (${err.code || "Network Error"}). Please check your SMTP Host address and Port number.`;
   }
   return msg;
 }
-function getEmailStatus() {
+async function getEmailStatus() {
+  await loadSmtpConfigFromDb();
   const host = runtimeSmtpHost || process.env.SMTP_HOST;
   const user = runtimeSmtpUser || process.env.SMTP_USER;
-  const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD);
-  const isConfigured = Boolean(host && user && hasPass);
+  const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
+  const isConfigured = Boolean(host && user && hasPass) || Boolean(process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
   return {
     configured: isConfigured,
-    host: host || "Not set",
+    host: host || (process.env.BREVO_API_KEY ? "api.brevo.com" : process.env.RESEND_API_KEY ? "api.resend.com" : "Not set"),
     port: runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587,
     secure: runtimeSmtpSecure || process.env.SMTP_SECURE === "true",
     user: user ? `${user.substring(0, 4)}***@${user.split("@")[1] || ""}` : "Not set",
@@ -475,41 +538,22 @@ function getEmailStatus() {
   };
 }
 async function sendTestEmail(targetEmail) {
-  const transporter = getEmailTransporter();
-  if (!transporter) {
-    return {
-      success: false,
-      error: "SMTP credentials (SMTP_HOST, SMTP_USER, SMTP_PASS) are not configured in environment variables."
-    };
-  }
   const fromAddress = getSenderFromAddress((runtimeSmtpUser || process.env.SMTP_USER || "").trim());
-  try {
-    const info = await transporter.sendMail({
-      from: fromAddress,
-      to: targetEmail,
-      subject: "\u2705 BlazeStore Outbound Email Test Successful",
-      html: `
-        <div style="font-family: sans-serif; padding: 24px; color: #1E293B;">
-          <h2 style="color: #4F46E5;">Email Delivery Connected! \u{1F389}</h2>
-          <p>This is a verification test from your <strong>BlazeStore Nigeria</strong> store platform.</p>
-          <p>Your SMTP email configuration is active and ready to deliver real-time order receipts, customer invoices, and delivery updates.</p>
-          <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;" />
-          <p style="font-size: 12px; color: #94A3B8;">Timestamp: ${(/* @__PURE__ */ new Date()).toISOString()}</p>
-        </div>
-      `
-    });
-    return {
-      success: true,
-      messageId: info.messageId,
-      simulated: false
-    };
-  } catch (err) {
-    const friendly = formatSmtpError(err);
-    return {
-      success: false,
-      error: friendly
-    };
-  }
+  const html = `
+    <div style="font-family: sans-serif; padding: 24px; color: #1E293B;">
+      <h2 style="color: #4F46E5;">Email Delivery Connected! \u{1F389}</h2>
+      <p>This is a verification test from your <strong>BlazeStore Nigeria</strong> store platform.</p>
+      <p>Your email configuration is active and ready to deliver real-time order receipts, customer invoices, and delivery updates.</p>
+      <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;" />
+      <p style="font-size: 12px; color: #94A3B8;">Timestamp: ${(/* @__PURE__ */ new Date()).toISOString()}</p>
+    </div>
+  `;
+  return dispatchOutboundEmail({
+    to: targetEmail,
+    subject: "\u2705 BlazeStore Outbound Email Test Successful",
+    html,
+    from: fromAddress
+  });
 }
 
 // server/db.ts
@@ -1465,9 +1509,9 @@ async function uploadImageToCloudinary(imageContent, options) {
 // server/paystack.ts
 import crypto from "crypto";
 var runtimePaystackSecretKey = "";
-var runtimePaystackPublicKey = "pk_live_62a83832cf627e85d9451840a50e74980ca562e0";
+var runtimePaystackPublicKey = process.env.PAYSTACK_PUBLIC_KEY || process.env.VITE_PAYSTACK_PUBLIC_KEY || "";
 var runtimePreferredMode = "live";
-var DEFAULT_PAYSTACK_PUBLIC_KEY = "pk_live_62a83832cf627e85d9451840a50e74980ca562e0";
+var DEFAULT_PAYSTACK_PUBLIC_KEY = process.env.PAYSTACK_PUBLIC_KEY || process.env.VITE_PAYSTACK_PUBLIC_KEY || "";
 function isPaystackConfigured() {
   const key = getPaystackSecretKey();
   return !!(key && key.trim() !== "" && key.startsWith("sk_"));
@@ -1693,6 +1737,7 @@ function createApp() {
     }
     express.urlencoded({ limit: "50mb", extended: true })(req, res, next);
   });
+  app2.use(express.static(path2.join(process.cwd(), "public")));
   const apiRouter = express.Router();
   apiRouter.get("/health", (req, res) => {
     res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
@@ -1794,12 +1839,12 @@ function createApp() {
       res.status(500).json({ success: false, error: err?.message || "Failed to process image upload" });
     }
   });
-  apiRouter.get("/email/status", (req, res) => {
+  apiRouter.get("/email/status", async (req, res) => {
     try {
-      const status = getEmailStatus();
+      const status = await getEmailStatus();
       res.json({ success: true, ...status });
     } catch (err) {
-      res.status(500).json({ success: false, error: err?.message });
+      res.status(500).json({ success: false, error: err?.message || "Failed to check status" });
     }
   });
   apiRouter.post("/email/test", async (req, res) => {
@@ -1816,7 +1861,7 @@ function createApp() {
     try {
       const { host, port, user, pass, from, secure } = req.body || {};
       await setRuntimeEmailConfig({ host, port, user, pass, from, secure });
-      const status = getEmailStatus();
+      const status = await getEmailStatus();
       res.json({ success: true, ...status });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message || "Failed to update email config" });

@@ -200,14 +200,16 @@ async function safeJsonFetch<T = any>(url: string, options?: RequestInit, isRetr
     json = text ? JSON.parse(text) : {};
   } catch {
     if (!res.ok) {
-      throw new Error(
-        res.status >= 500
-          ? `Server error (${res.status}): ${res.status === 503 ? 'Database connection unavailable.' : 'Please check database connection in Settings & Vercel environment.'}`
-          : `API returned unexpected response (${res.status}).`
-      );
+      throw new Error(`Server error (${res.status}): Request failed`);
     }
     throw new Error(`Invalid response format from server`);
   }
+
+  if (!res.ok) {
+    const serverErr = json?.error || json?.message || `Server returned HTTP ${res.status}`;
+    throw new Error(serverErr);
+  }
+
   return json;
 }
 

@@ -173,7 +173,7 @@ service cloud.firestore {
     }
     setIsUpdatingSmtp(true);
     try {
-      await api.updateEmailConfig({
+      const res = await api.updateEmailConfig({
         host: smtpHostInput.trim(),
         port: Number(smtpPortInput) || 587,
         user: smtpUserInput.trim(),
@@ -181,10 +181,15 @@ service cloud.firestore {
         from: smtpFromInput.trim() || `BlazeStore NG <${smtpUserInput.trim()}>`,
         secure: smtpSecureInput,
       });
+      if (res && res.success === false) {
+        throw new Error(res.error || 'Failed to save SMTP configuration.');
+      }
       onShowToast('✅ Outbound SMTP credentials updated successfully!');
       setSmtpPassInput('');
       setShowSmtpConfigForm(false);
-      await checkStatus(true);
+      try {
+        await checkStatus(true);
+      } catch {}
     } catch (err: any) {
       onShowToast(`❌ Failed to update SMTP: ${err?.message || 'Error'}`);
     } finally {

@@ -24,11 +24,11 @@ export async function setRuntimeEmailConfig(config: {
   from?: string;
   secure?: boolean;
 }) {
-  if (config.host !== undefined) runtimeSmtpHost = config.host.trim();
+  if (typeof config.host === 'string') runtimeSmtpHost = config.host.trim();
   if (config.port !== undefined) runtimeSmtpPort = Number(config.port) || 587;
-  if (config.user !== undefined) runtimeSmtpUser = config.user.trim();
-  if (config.pass !== undefined) runtimeSmtpPass = config.pass.trim();
-  if (config.from !== undefined) runtimeSmtpFrom = config.from.trim();
+  if (typeof config.user === 'string') runtimeSmtpUser = config.user.trim();
+  if (typeof config.pass === 'string') runtimeSmtpPass = config.pass.trim();
+  if (typeof config.from === 'string') runtimeSmtpFrom = config.from.trim();
   if (config.secure !== undefined) runtimeSmtpSecure = Boolean(config.secure);
 
   try {

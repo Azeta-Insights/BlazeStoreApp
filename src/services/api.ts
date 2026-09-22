@@ -200,7 +200,8 @@ async function safeJsonFetch<T = any>(url: string, options?: RequestInit, isRetr
     json = text ? JSON.parse(text) : {};
   } catch {
     if (!res.ok) {
-      throw new Error(`Server error (${res.status}): Request failed`);
+      const cleanText = text?.replace(/<[^>]+>/g, '').trim() || '';
+      throw new Error(cleanText.slice(0, 200) || `Server error (${res.status}): Email service temporarily unavailable`);
     }
     throw new Error(`Invalid response format from server`);
   }

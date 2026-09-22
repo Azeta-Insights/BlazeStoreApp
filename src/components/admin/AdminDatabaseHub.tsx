@@ -1585,11 +1585,10 @@ service cloud.firestore {
             )}
 
             <div className="bg-black/90 text-white rounded-lg p-3 text-[11px] font-mono space-y-1">
-              <div className="text-[#0AA5FF]"># Required Environment Variables (.env)</div>
-              <div>SMTP_HOST=&quot;smtp.gmail.com&quot;</div>
-              <div>SMTP_PORT=&quot;587&quot;</div>
-              <div>SMTP_USER=&quot;blessing.waydiva@gmail.com&quot;</div>
-              <div>SMTP_PASS=&quot;your-16-char-app-password&quot;</div>
+              <div className="text-[#0AA5FF]"># Recommended Vercel Environment Variables</div>
+              <div>BREVO_API_KEY=&quot;xkeysib-...&quot;</div>
+              <div>SMTP_USER=&quot;ba9da8001@smtp-brevo.com&quot;</div>
+              <div>SMTP_FROM=&quot;Blaze World &lt;blazeworldd@outlook.com&gt;&quot;</div>
             </div>
           </div>
 

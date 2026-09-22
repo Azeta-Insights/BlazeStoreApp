@@ -1,31 +1,45 @@
-// server/createApp.ts
-import express from "express";
-import path2 from "path";
-import dotenv from "dotenv";
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// firebase-applet-config.json
+var firebase_applet_config_default;
+var init_firebase_applet_config = __esm({
+  "firebase-applet-config.json"() {
+    firebase_applet_config_default = {
+      projectId: "blazestoreapp",
+      appId: "1:724566112743:web:372057304061ac5e54e542",
+      apiKey: "AIzaSyBvT-lc2aM4COerr8EJIyODfa7gIvUdmBQ",
+      authDomain: "blazestoreapp.firebaseapp.com",
+      storageBucket: "blazestoreapp.firebasestorage.app",
+      messagingSenderId: "724566112743",
+      measurementId: "",
+      oAuthClientId: "",
+      recaptchaSiteKey: ""
+    };
+  }
+});
 
 // server/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-
-// firebase-applet-config.json
-var firebase_applet_config_default = {
-  projectId: "blazestoreapp",
-  appId: "1:724566112743:web:372057304061ac5e54e542",
-  apiKey: "AIzaSyBvT-lc2aM4COerr8EJIyODfa7gIvUdmBQ",
-  authDomain: "blazestoreapp.firebaseapp.com",
-  storageBucket: "blazestoreapp.firebasestorage.app",
-  messagingSenderId: "724566112743",
-  measurementId: "",
-  oAuthClientId: "",
-  recaptchaSiteKey: ""
-};
-
-// server/firebase.ts
-var projectId = firebase_applet_config_default.projectId || "blazestoreapp";
-var adminApp = getApps().length === 0 ? initializeApp({ projectId }) : getApp();
-var adminDb = getFirestore(adminApp);
-var adminAuth = getAuth(adminApp);
+var projectId, adminApp, adminDb, adminAuth;
+var init_firebase = __esm({
+  "server/firebase.ts"() {
+    init_firebase_applet_config();
+    projectId = firebase_applet_config_default.projectId || "blazestoreapp";
+    adminApp = getApps().length === 0 ? initializeApp({ projectId }) : getApp();
+    adminDb = getFirestore(adminApp);
+    adminAuth = getAuth(adminApp);
+  }
+});
 
 // server/auth.ts
 async function verifyFirebaseIdToken(idToken) {
@@ -65,19 +79,22 @@ function parseCookies(cookieHeader) {
   });
   return list;
 }
-
-// server/db.ts
-import fs from "fs";
-import path from "path";
+var init_auth = __esm({
+  "server/auth.ts"() {
+    init_firebase();
+  }
+});
 
 // src/data/mockData.ts
-var BEST_DEALS = [];
-var RECOMMENDED_PRODUCTS = [];
+var BEST_DEALS, RECOMMENDED_PRODUCTS;
+var init_mockData = __esm({
+  "src/data/mockData.ts"() {
+    BEST_DEALS = [];
+    RECOMMENDED_PRODUCTS = [];
+  }
+});
 
 // server/firestoreRest.ts
-var projectId2 = firebase_applet_config_default.projectId || "blazestoreapp";
-var apiKey = firebase_applet_config_default.apiKey || "";
-var BASE_URL = `https://firestore.googleapis.com/v1/projects/${projectId2}/databases/(default)/documents`;
 function toFirestoreValue(val) {
   if (val === null || val === void 0) {
     return { nullValue: null };
@@ -196,15 +213,26 @@ async function restDeleteDoc(collectionName, docId) {
     return false;
   }
 }
+var projectId2, apiKey, BASE_URL;
+var init_firestoreRest = __esm({
+  "server/firestoreRest.ts"() {
+    init_firebase_applet_config();
+    projectId2 = firebase_applet_config_default.projectId || "blazestoreapp";
+    apiKey = firebase_applet_config_default.apiKey || "";
+    BASE_URL = `https://firestore.googleapis.com/v1/projects/${projectId2}/databases/(default)/documents`;
+  }
+});
 
 // server/email.ts
+var email_exports = {};
+__export(email_exports, {
+  getEmailStatus: () => getEmailStatus,
+  loadSmtpConfigFromDb: () => loadSmtpConfigFromDb,
+  sendOrderConfirmationEmail: () => sendOrderConfirmationEmail,
+  sendTestEmail: () => sendTestEmail,
+  setRuntimeEmailConfig: () => setRuntimeEmailConfig
+});
 import nodemailer from "nodemailer";
-var runtimeSmtpHost = process.env.SMTP_HOST || "smtp-relay.brevo.com";
-var runtimeSmtpPort = Number(process.env.SMTP_PORT) || 587;
-var runtimeSmtpUser = process.env.SMTP_USER || "";
-var runtimeSmtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || "";
-var runtimeSmtpFrom = process.env.SMTP_FROM || "Blaze World <blazeworldd@outlook.com>";
-var runtimeSmtpSecure = process.env.SMTP_SECURE === "true";
 async function setRuntimeEmailConfig(config) {
   if (typeof config.host === "string") runtimeSmtpHost = config.host.trim();
   if (config.port !== void 0) runtimeSmtpPort = Number(config.port) || 587;
@@ -241,8 +269,6 @@ async function loadSmtpConfigFromDb() {
     console.warn("[SMTP Settings] Could not load SMTP settings from database:", err);
   }
 }
-loadSmtpConfigFromDb().catch(() => {
-});
 async function getEmailTransporter() {
   await loadSmtpConfigFromDb();
   let host = (runtimeSmtpHost || process.env.SMTP_HOST || "").trim();
@@ -555,8 +581,24 @@ async function sendTestEmail(targetEmail) {
     from: fromAddress
   });
 }
+var runtimeSmtpHost, runtimeSmtpPort, runtimeSmtpUser, runtimeSmtpPass, runtimeSmtpFrom, runtimeSmtpSecure;
+var init_email = __esm({
+  "server/email.ts"() {
+    init_db();
+    runtimeSmtpHost = process.env.SMTP_HOST || "smtp-relay.brevo.com";
+    runtimeSmtpPort = Number(process.env.SMTP_PORT) || 587;
+    runtimeSmtpUser = process.env.SMTP_USER || "";
+    runtimeSmtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.BREVO_API_KEY || "";
+    runtimeSmtpFrom = process.env.SMTP_FROM || "Blaze World <blazeworldd@outlook.com>";
+    runtimeSmtpSecure = process.env.SMTP_SECURE === "true";
+    loadSmtpConfigFromDb().catch(() => {
+    });
+  }
+});
 
 // server/db.ts
+import fs from "fs";
+import path from "path";
 function getRoleForEmail(email) {
   const clean = (email || "").trim().toLowerCase();
   if (clean === "azetablessingb@gmail.com" || clean === "blessing.waydiva@gmail.com" || clean === "owner@blazestore.com" || clean.startsWith("owner@") || clean.includes("storeowner")) {
@@ -567,9 +609,6 @@ function getRoleForEmail(email) {
   }
   return { role: "Customer", roleType: "customer" };
 }
-var DB_DIR = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? path.join("/tmp", "data") : path.join(process.cwd(), "data");
-var DB_FILE = path.join(DB_DIR, "blazestore_db.json");
-var serverStore = /* @__PURE__ */ new Map();
 function loadDatabaseFromDisk() {
   try {
     if (!fs.existsSync(DB_DIR)) {
@@ -597,7 +636,6 @@ function loadDatabaseFromDisk() {
     console.warn("[Storage] Failed to read blazestore_db.json from disk:", err);
   }
 }
-var saveTimeout = null;
 function persistDatabaseToDisk(immediate = false) {
   const executeSave = () => {
     try {
@@ -629,8 +667,6 @@ function getStoreMap(collectionName) {
   }
   return map;
 }
-loadDatabaseFromDisk();
-var syncedCollections = /* @__PURE__ */ new Set();
 async function syncCollectionFromRemote(collectionName) {
   try {
     const remoteDocs = await restGetCollection(collectionName);
@@ -982,8 +1018,11 @@ async function createOrder(orderData) {
   } catch (notifErr) {
     console.warn("[Notification Notice]:", notifErr);
   }
-  sendOrderConfirmationEmail(newOrder).catch((err) => {
-    console.warn("[Email Dispatch Notice]:", err?.message || err);
+  Promise.resolve().then(() => (init_email(), email_exports)).then(({ sendOrderConfirmationEmail: sendOrderConfirmationEmail2 }) => {
+    sendOrderConfirmationEmail2(newOrder).catch((err) => {
+      console.warn("[Email Dispatch Notice]:", err?.message || err);
+    });
+  }).catch(() => {
   });
   return newOrder;
 }
@@ -1034,8 +1073,11 @@ async function updateOrderPaymentByReference(reference, paymentDetails) {
       };
       await saveDocument("orders", o.id, updatedOrder);
       if (paymentDetails.paid && o.paymentStatus !== "paid") {
-        sendOrderConfirmationEmail(updatedOrder).catch((err) => {
-          console.warn("[Email Dispatch Notice on Payment]:", err?.message || err);
+        Promise.resolve().then(() => (init_email(), email_exports)).then(({ sendOrderConfirmationEmail: sendOrderConfirmationEmail2 }) => {
+          sendOrderConfirmationEmail2(updatedOrder).catch((err) => {
+            console.warn("[Email Dispatch Notice on Payment]:", err?.message || err);
+          });
+        }).catch(() => {
         });
       }
     }
@@ -1408,6 +1450,28 @@ async function clearAllMockData() {
   ]);
   return { success: true, message: "All mock orders, refunds, notifications, and test customer accounts cleared from Firestore." };
 }
+var DB_DIR, DB_FILE, serverStore, saveTimeout, syncedCollections;
+var init_db = __esm({
+  "server/db.ts"() {
+    init_firebase();
+    init_auth();
+    init_mockData();
+    init_firestoreRest();
+    DB_DIR = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? path.join("/tmp", "data") : path.join(process.cwd(), "data");
+    DB_FILE = path.join(DB_DIR, "blazestore_db.json");
+    serverStore = /* @__PURE__ */ new Map();
+    saveTimeout = null;
+    loadDatabaseFromDisk();
+    syncedCollections = /* @__PURE__ */ new Set();
+  }
+});
+
+// server/createApp.ts
+init_auth();
+init_db();
+import express from "express";
+import path2 from "path";
+import dotenv from "dotenv";
 
 // server/cloudinary.ts
 import { v2 as cloudinary } from "cloudinary";
@@ -1505,6 +1569,9 @@ async function uploadImageToCloudinary(imageContent, options) {
     };
   }
 }
+
+// server/createApp.ts
+init_email();
 
 // server/paystack.ts
 import crypto from "crypto";
@@ -1854,7 +1921,8 @@ function createApp() {
       const result = await sendTestEmail(target);
       res.json(result);
     } catch (err) {
-      res.status(500).json({ success: false, error: err?.message || "Failed to trigger test email" });
+      console.error("[Email Test API Error]:", err);
+      res.status(200).json({ success: false, error: err?.message || "Failed to trigger test email" });
     }
   });
   apiRouter.post("/email/config", async (req, res) => {

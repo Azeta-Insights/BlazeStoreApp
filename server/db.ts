@@ -10,7 +10,6 @@ import {
   restSetDoc,
   restDeleteDoc,
 } from './firestoreRest';
-import { sendOrderConfirmationEmail } from './email';
 
 // Helper to determine admin roles based on email
 export function getRoleForEmail(email: string): { role: string; roleType: AdminRole } {
@@ -527,9 +526,11 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
   }
 
   // Trigger background order confirmation email
-  sendOrderConfirmationEmail(newOrder).catch((err) => {
-    console.warn('[Email Dispatch Notice]:', err?.message || err);
-  });
+  import('./email').then(({ sendOrderConfirmationEmail }) => {
+    sendOrderConfirmationEmail(newOrder).catch((err) => {
+      console.warn('[Email Dispatch Notice]:', err?.message || err);
+    });
+  }).catch(() => {});
 
   return newOrder;
 }
@@ -597,9 +598,11 @@ export async function updateOrderPaymentByReference(reference: string, paymentDe
       };
       await saveDocument('orders', o.id, updatedOrder);
       if (paymentDetails.paid && o.paymentStatus !== 'paid') {
-        sendOrderConfirmationEmail(updatedOrder as Order).catch((err) => {
-          console.warn('[Email Dispatch Notice on Payment]:', err?.message || err);
-        });
+        import('./email').then(({ sendOrderConfirmationEmail }) => {
+          sendOrderConfirmationEmail(updatedOrder as Order).catch((err) => {
+            console.warn('[Email Dispatch Notice on Payment]:', err?.message || err);
+          });
+        }).catch(() => {});
       }
     }
   }

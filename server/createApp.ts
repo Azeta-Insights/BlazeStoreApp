@@ -245,7 +245,8 @@ export function createApp() {
       const result = await sendTestEmail(target);
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'Failed to trigger test email' });
+      console.error('[Email Test API Error]:', err);
+      res.status(200).json({ success: false, error: err?.message || 'Failed to trigger test email' });
     }
   });
 

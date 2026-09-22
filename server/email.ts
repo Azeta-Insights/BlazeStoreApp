@@ -86,19 +86,40 @@ async function getEmailTransporter() {
   const user = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
   let pass = (runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '').trim();
 
+  // Strip accidental quotes or brackets wrapped around env vars
+  pass = pass.replace(/^["']|["']$/g, '').trim();
+
   // If user is a Gmail address and host is empty, default host to smtp.gmail.com
   if (!host && user.toLowerCase().endsWith('@gmail.com')) {
     host = 'smtp.gmail.com';
   }
 
   // If using Gmail or Google SMTP, strip spaces and dashes from 16-char App Password (e.g. "abcd efgh ijkl mnop")
-  if ((host.includes('gmail.com') || host.includes('googlemail.com') || user.toLowerCase().endsWith('@gmail.com')) && pass) {
+  const isGmail = host.includes('gmail.com') || host.includes('googlemail.com') || user.toLowerCase().endsWith('@gmail.com');
+  if (isGmail && pass) {
     pass = pass.replace(/[\s-]+/g, '');
   }
 
   const secure = runtimeSmtpSecure || process.env.SMTP_SECURE === 'true' || port === 465;
 
-  if (!host || !user || !pass) {
+  if (!user || !pass) {
+    return null;
+  }
+
+  if (isGmail) {
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user,
+        pass,
+      },
+      connectionTimeout: 10000, // 10 seconds timeout for Vercel
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
+  }
+
+  if (!host) {
     return null;
   }
 
@@ -111,6 +132,9 @@ async function getEmailTransporter() {
       pass,
     },
     name: 'blazestore.ng',
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
 }
 

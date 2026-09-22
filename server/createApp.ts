@@ -229,12 +229,12 @@ export function createApp() {
   });
 
   // === Outbound Email Service Status & Test ===
-  apiRouter.get('/email/status', (req, res) => {
+  apiRouter.get('/email/status', async (req, res) => {
     try {
-      const status = getEmailStatus();
+      const status = await getEmailStatus();
       res.json({ success: true, ...status });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message });
+      res.status(500).json({ success: false, error: err?.message || 'Failed to check status' });
     }
   });
 
@@ -253,7 +253,7 @@ export function createApp() {
     try {
       const { host, port, user, pass, from, secure } = req.body || {};
       await setRuntimeEmailConfig({ host, port, user, pass, from, secure });
-      const status = getEmailStatus();
+      const status = await getEmailStatus();
       res.json({ success: true, ...status });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'Failed to update email config' });

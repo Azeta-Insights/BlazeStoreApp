@@ -79,7 +79,8 @@ loadSmtpConfigFromDb().catch(() => {});
 /**
  * Get nodemailer transport configured via environment variables or runtime settings
  */
-function getEmailTransporter() {
+async function getEmailTransporter() {
+  await loadSmtpConfigFromDb();
   let host = (runtimeSmtpHost || process.env.SMTP_HOST || '').trim();
   const port = runtimeSmtpPort || Number(process.env.SMTP_PORT) || 587;
   const user = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
@@ -172,7 +173,7 @@ export async function sendOrderConfirmationEmail(order: Order): Promise<EmailSen
     return { success: false, error: 'Recipient email is missing or invalid.' };
   }
 
-  const transporter = getEmailTransporter();
+  const transporter = await getEmailTransporter();
   const smtpUser = (runtimeSmtpUser || process.env.SMTP_USER || '').trim();
   const fromAddress = getSenderFromAddress(smtpUser);
   const itemsHtml = (order.items || [])
@@ -337,7 +338,8 @@ function formatSmtpError(err: any): string {
   return msg;
 }
 
-export function getEmailStatus() {
+export async function getEmailStatus() {
+  await loadSmtpConfigFromDb();
   const host = runtimeSmtpHost || process.env.SMTP_HOST;
   const user = runtimeSmtpUser || process.env.SMTP_USER;
   const hasPass = Boolean(runtimeSmtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD);
@@ -357,7 +359,7 @@ export function getEmailStatus() {
  * Sends a test email to verify credentials
  */
 export async function sendTestEmail(targetEmail: string): Promise<EmailSendResult> {
-  const transporter = getEmailTransporter();
+  const transporter = await getEmailTransporter();
   if (!transporter) {
     return {
       success: false,
